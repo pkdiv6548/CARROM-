@@ -1,39 +1,1218 @@
- 'use strict';
+'use strict';
 
 /* =========================================================
-   CARROM CLASH — MOBILE FIRST GAME ENGINE
-   Full replacement game.js
+   CARROM CLASH
+   COMPLETE MOBILE-FIRST GAME ENGINE
+   No libraries / no build step / GitHub Pages ready
    ========================================================= */
 
-const $ = (s) => document.querySelector(s);
-const $$ = (s) => [...document.querySelectorAll(s)];
+(() => {
+  /* =======================================================
+     DOM HELPERS
+     ======================================================= */
 
-/* ---------------------------------------------------------
-   DOM
---------------------------------------------------------- */
+  const $ = (selector) => document.querySelector(selector);
+  const $$ = (selector) => [...document.querySelectorAll(selector)];
 
-const canvas = $('#board');
-const ctx = canvas ? canvas.getContext('2d') : null;
+  const canvas = $('#board');
+  const ctx = canvas ? canvas.getContext('2d') : null;
 
-/* ---------------------------------------------------------
-   BOARD
---------------------------------------------------------- */
+  if (!canvas || !ctx) {
+    console.error('CARROM CLASH: #board canvas not found.');
+    return;
+  }
 
-const W = 900;
-const CX = 450;
-const CY = 450;
+  /* =======================================================
+     CONSTANTS
+     ======================================================= */
 
-const BOARD_R = 365;
-const PLAY_MIN = 88;
-const PLAY_MAX = 812;
+  const W = 900;
+  const H = 900;
 
-const POCKETS = [
-  [54, 54],
-  [846, 54],
-  [54, 846],
-  [846, 846]
-];
+  const CX = 450;
+  const CY = 450;
 
+  const BOARD_R = 365;
+
+  /*
+    Physical playing area is deliberately wider than the
+    visual inner square so coins can actually enter pockets.
+  */
+  const PLAY_MIN = 67;
+  const PLAY_MAX = 833;
+
+  const POCKET_R = 34;
+
+  const POCKETS = [
+    { x: 54, y: 54 },
+    { x: 846, y: 54 },
+    { x: 54, y: 846 },
+    { x: 846, y: 846 }
+  ];
+
+  const COIN_R = 14;
+  const STRIKER_R = 18;
+
+  const FRICTION = 0.985;
+  const MIN_SPEED = 0.055;
+
+  const MAX_SHOT_POWER = 23;
+
+  const TURN_SECONDS = 20;
+
+  const C = {
+    gold: '#f7c84b',
+    gold2: '#ffe38a',
+    teal: '#39e2d0',
+    red: '#ff5365',
+    purple: '#b98cff',
+    navy: '#071526',
+    navy2: '#0c1d2f',
+    cream: '#f6dfae',
+    wood: '#b87b35',
+    black: '#1c2732',
+    white: '#fff8e7'
+  };
+
+  /* =======================================================
+     GAME STATE
+     ======================================================= */
+
+  let mode = 'ai';
+
+  let players = [];
+
+  let turn = 0;
+
+  let coins = [];
+
+  let striker = null;
+
+  let dragging = false;
+  let dragPoint = null;
+
+  let shotActive = false;
+
+  let gameOver = false;
+
+  let timer = TURN_SECONDS;
+  let timerId = null;
+
+  let raf = 0;
+  let lastTime = 0;
+
+  let particles = [];
+
+  let shotPocketed = 0;
+  let shotQueen = false;
+  let shotFoul = false;
+  let shotStarted = false;
+
+  let soundOn = true;
+  let audioCtx = null;
+
+  let aiTimer = null;
+
+  let stats = loadStats();
+
+  /* =======================================================
+     STORAGE
+     ======================================================= */
+
+  function loadStats() {
+    try {
+      const raw = localStorage.getItem('carromClashStats');
+
+      if (!raw) {
+        return {
+          games: 0,
+          wins: 0
+        };
+      }
+
+      const data = JSON.parse(raw);
+
+      return {
+        games: Number(data.games) || 0,
+        wins: Number(data.wins) || 0
+      };
+    } catch {
+      return {
+        games: 0,
+        wins: 0
+      };
+    }
+  }
+
+  function saveStats() {
+    try {
+      localStorage.setItem(
+        'carromClashStats',
+        JSON.stringify(stats)
+      );
+    } catch {}
+  }
+
+  /* =======================================================
+     AUDIO
+     ======================================================= */
+
+  function unlockAudio() {
+    if (!soundOn) return;
+
+    try {
+      const AudioContext =
+        window.AudioContext ||
+        window.webkitAudioContext;
+
+      if (!AudioContext) return;
+
+      if (!audioCtx) {
+        audioCtx = new AudioContext();
+      }
+
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+      }
+    } catch {}
+  }
+
+  function tone(
+    frequency = 440,
+    duration = 0.07,
+    type = 'sine',
+    volume = 0.03
+  ) {
+    if (!soundOn) return;
+
+    unlockAudio();
+
+    if (!audioCtx) return;
+
+    try {
+      const oscillator = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      const now = audioCtx.currentTime;
+
+      oscillator.type = type;
+
+      oscillator.frequency.setValueAtTime(
+        frequency,
+        now
+      );
+
+      gain.gain.setValueAtTime(
+        0.0001,
+        now
+      );
+
+      gain.gain.exponentialRampToValueAtTime(
+        Math.max(0.0002, volume),
+        now + 0.008
+      );
+
+      gain.gain.exponentialRampToValueAtTime(
+        0.0001,
+        now + duration
+      );
+
+      oscillator.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      oscillator.start(now);
+
+      oscillator.stop(
+        now + duration + 0.03
+      );
+    } catch {}
+  }
+
+  const sfx = {
+    click() {
+      tone(620, 0.045, 'triangle', 0.025);
+    },
+
+    hit(power = 1) {
+      tone(
+        145 + Math.min(250, power * 24),
+        0.06,
+        'square',
+        0.018
+      );
+    },
+
+    rail() {
+      tone(90, 0.045, 'sine', 0.012);
+    },
+
+    pocket() {
+      tone(680, 0.08, 'sine', 0.04);
+
+      setTimeout(() => {
+        tone(980, 0.12, 'sine', 0.03);
+      }, 55);
+    },
+
+    queen() {
+      [520, 660, 820, 1040].forEach(
+        (frequency, index) => {
+          setTimeout(() => {
+            tone(
+              frequency,
+              0.12,
+              'triangle',
+              0.04
+            );
+          }, index * 70);
+        }
+      );
+    },
+
+    foul() {
+      tone(
+        150,
+        0.14,
+        'sawtooth',
+        0.035
+      );
+
+      setTimeout(() => {
+        tone(
+          95,
+          0.16,
+          'sawtooth',
+          0.025
+        );
+      }, 90);
+    },
+
+    win() {
+      [523, 659, 784, 1047, 1319].forEach(
+        (frequency, index) => {
+          setTimeout(() => {
+            tone(
+              frequency,
+              0.18,
+              'triangle',
+              0.045
+            );
+          }, index * 90);
+        }
+      );
+    }
+  };
+
+  /* =======================================================
+     PLAYERS
+     ======================================================= */
+
+  function makePlayer(name, color) {
+    return {
+      name,
+      color,
+      score: 0,
+      fouls: 0,
+      shots: 0,
+      queen: 0,
+      pocketed: 0
+    };
+  }
+
+  function initPlayers() {
+    if (mode === 'ai') {
+      players = [
+        makePlayer('Player 1', C.gold),
+        makePlayer('Computer', C.teal)
+      ];
+      return;
+    }
+
+    if (mode === '2p') {
+      players = [
+        makePlayer('Player 1', C.gold),
+        makePlayer('Player 2', C.teal)
+      ];
+      return;
+    }
+
+    if (mode === '3p') {
+      players = [
+        makePlayer('Player 1', C.gold),
+        makePlayer('Player 2', C.teal),
+        makePlayer('Player 3', C.red)
+      ];
+      return;
+    }
+
+    players = [
+      makePlayer('Player 1', C.gold),
+      makePlayer('Player 2', C.teal),
+      makePlayer('Player 3', C.red),
+      makePlayer('Player 4', C.purple)
+    ];
+  }
+
+  function currentPlayer() {
+    return players[turn] || players[0];
+  }
+
+  function modeLabel() {
+    if (mode === 'ai') return 'VS COMPUTER';
+    if (mode === '2p') return '2 PLAYER DUEL';
+    if (mode === '3p') return '3 PLAYER CLASH';
+    return '4 PLAYER CLASH';
+  }
+
+  /* =======================================================
+     BOARD GEOMETRY
+     ======================================================= */
+
+  function edgeLine() {
+    return BOARD_R - 92;
+  }
+
+  function strikerPos() {
+    const count = players.length;
+    const side = turn % Math.max(1, count);
+    const edge = edgeLine();
+
+    if (count <= 2) {
+      if (side === 0) {
+        return {
+          x: CX,
+          y: CY + edge
+        };
+      }
+
+      return {
+        x: CX,
+        y: CY - edge
+      };
+    }
+
+    if (count === 3) {
+      if (side === 0) {
+        return {
+          x: CX,
+          y: CY + edge
+        };
+      }
+
+      if (side === 1) {
+        return {
+          x: CX + edge,
+          y: CY
+        };
+      }
+
+      return {
+        x: CX - edge,
+        y: CY
+      };
+    }
+
+    if (side === 0) {
+      return {
+        x: CX,
+        y: CY + edge
+      };
+    }
+
+    if (side === 1) {
+      return {
+        x: CX + edge,
+        y: CY
+      };
+    }
+
+    if (side === 2) {
+      return {
+        x: CX,
+        y: CY - edge
+      };
+    }
+
+    return {
+      x: CX - edge,
+      y: CY
+    };
+  }
+
+  function placeStriker() {
+    const pos = strikerPos();
+
+    striker = {
+      x: pos.x,
+      y: pos.y,
+      r: STRIKER_R,
+      vx: 0,
+      vy: 0,
+      pocketed: false
+    };
+  }
+
+  /* =======================================================
+     COINS
+     ======================================================= */
+
+  function createCoin(
+    x,
+    y,
+    type = 'black'
+  ) {
+    return {
+      x,
+      y,
+      r: COIN_R,
+      vx: 0,
+      vy: 0,
+      type,
+      pocketed: false
+    };
+  }
+
+  function createRack() {
+    coins = [];
+
+    const spacing = 29;
+
+    /*
+      Center queen
+    */
+    coins.push(
+      createCoin(
+        CX,
+        CY,
+        'queen'
+      )
+    );
+
+    /*
+      6 around queen
+    */
+    const ring1 = 6;
+
+    for (let i = 0; i < ring1; i++) {
+      const angle =
+        (Math.PI * 2 * i) /
+        ring1;
+
+      coins.push(
+        createCoin(
+          CX +
+            Math.cos(angle) *
+              spacing,
+          CY +
+            Math.sin(angle) *
+              spacing,
+          i % 2 === 0
+            ? 'white'
+            : 'black'
+        )
+      );
+    }
+
+    /*
+      Outer ring
+    */
+    const ring2 = 12;
+
+    for (let i = 0; i < ring2; i++) {
+      const angle =
+        (Math.PI * 2 * i) /
+          ring2 +
+        Math.PI / ring2;
+
+      coins.push(
+        createCoin(
+          CX +
+            Math.cos(angle) *
+              spacing *
+              2,
+          CY +
+            Math.sin(angle) *
+              spacing *
+              2,
+          i % 2 === 0
+            ? 'black'
+            : 'white'
+        )
+      );
+    }
+  }
+
+  /* =======================================================
+     GAME RESET / START
+     ======================================================= */
+
+  function setup() {
+    stopLoop();
+
+    clearInterval(timerId);
+
+    if (aiTimer) {
+      clearTimeout(aiTimer);
+      aiTimer = null;
+    }
+
+    particles = [];
+
+    shotActive = false;
+    dragging = false;
+    dragPoint = null;
+
+    gameOver = false;
+
+    shotPocketed = 0;
+    shotQueen = false;
+    shotFoul = false;
+    shotStarted = false;
+
+    turn = 0;
+
+    initPlayers();
+
+    createRack();
+
+    placeStriker();
+
+    updateHUD();
+
+    resetTimer();
+
+    render();
+
+    requestLoop();
+
+    setStatus(
+      'Aim and shoot'
+    );
+
+    addFeed(
+      `${modeLabel()} started`
+    );
+  }
+
+  function startGame(selectedMode) {
+    const normalized =
+      String(selectedMode || 'ai')
+        .trim()
+        .toLowerCase();
+
+    if (
+      normalized !== 'ai' &&
+      normalized !== '2p' &&
+      normalized !== '3p' &&
+      normalized !== '4p'
+    ) {
+      mode = 'ai';
+    } else {
+      mode = normalized;
+    }
+
+    unlockAudio();
+
+    sfx.click();
+
+    const home = $('#home');
+    const game = $('#game');
+
+    if (home) {
+      home.classList.remove('active');
+    }
+
+    if (game) {
+      game.classList.add('active');
+
+      /*
+        Force browser reflow so mobile CSS transition
+        cannot leave the game screen invisible.
+      */
+      void game.offsetWidth;
+    }
+
+    setup();
+
+    setTimeout(() => {
+      render();
+      requestLoop();
+    }, 20);
+  }
+
+  function resetGame() {
+    unlockAudio();
+    sfx.click();
+
+    setup();
+  }
+
+  /* =======================================================
+     HUD
+     ======================================================= */
+
+  function setText(selector, value) {
+    const el = $(selector);
+
+    if (el) {
+      el.textContent = value;
+    }
+  }
+
+  function setStatus(text) {
+    setText(
+      '#status',
+      text
+    );
+  }
+
+  function updateHUD() {
+    const p = currentPlayer();
+
+    if (!p) return;
+
+    setText(
+      '#turnName',
+      p.name
+    );
+
+    setText(
+      '#p1Score',
+      players[0]
+        ? players[0].score
+        : 0
+    );
+
+    setText(
+      '#p2Score',
+      players[1]
+        ? players[1].score
+        : 0
+    );
+
+    setText(
+      '#p1Name',
+      players[0]
+        ? players[0].name
+        : 'Player 1'
+    );
+
+    setText(
+      '#p2Name',
+      players[1]
+        ? players[1].name
+        : 'Player 2'
+    );
+
+    setText(
+      '#p1Meta',
+      players[0]
+        ? `${players[0].score} points · ${players[0].fouls} fouls`
+        : '0 points · 0 fouls'
+    );
+
+    setText(
+      '#p2Meta',
+      players[1]
+        ? `${players[1].score} points · ${players[1].fouls} fouls`
+        : '0 points · 0 fouls'
+    );
+
+    setText(
+      '#p1Avatar',
+      players[0]
+        ? 'P1'
+        : 'P1'
+    );
+
+    setText(
+      '#p2Avatar',
+      mode === 'ai'
+        ? 'AI'
+        : 'P2'
+    );
+
+    const dot = $('#turnDot');
+
+    if (dot) {
+      dot.style.background =
+        p.color;
+      dot.style.boxShadow =
+        `0 0 18px ${p.color}`;
+    }
+  }
+
+  function updatePower(power) {
+    const value =
+      Math.round(
+        Math.max(
+          0,
+          Math.min(1, power)
+        ) * 100
+      );
+
+    setText(
+      '#powerValue',
+      `${value}%`
+    );
+
+    const fill =
+      $('#powerFill');
+
+    if (fill) {
+      fill.style.width =
+        `${value}%`;
+    }
+  }
+
+  /* =======================================================
+     FEED / TOAST
+     ======================================================= */
+
+  function addFeed(text) {
+    const list =
+      $('#feedList');
+
+    if (!list) return;
+
+    const item =
+      document.createElement('div');
+
+    item.className =
+      'feed-item';
+
+    item.textContent =
+      text;
+
+    list.prepend(item);
+
+    while (
+      list.children.length > 6
+    ) {
+      list.lastElementChild.remove();
+    }
+  }
+
+  function toast(message) {
+    const el =
+      $('#toast');
+
+    if (!el) return;
+
+    el.textContent =
+      message;
+
+    el.classList.add('show');
+
+    clearTimeout(
+      toast.timer
+    );
+
+    toast.timer =
+      setTimeout(() => {
+        el.classList.remove(
+          'show'
+        );
+      }, 1800);
+  }
+
+  /* =======================================================
+     TIMER
+     ======================================================= */
+
+  function resetTimer() {
+    clearInterval(timerId);
+
+    timer =
+      TURN_SECONDS;
+
+    updateTimerUI();
+
+    timerId =
+      setInterval(() => {
+        if (
+          gameOver ||
+          shotActive
+        ) {
+          return;
+        }
+
+        timer--;
+
+        updateTimerUI();
+
+        if (timer <= 0) {
+          clearInterval(
+            timerId
+          );
+
+          timeoutTurn();
+        }
+      }, 1000);
+  }
+
+  function updateTimerUI() {
+    setText(
+      '#timer',
+      Math.max(
+        0,
+        timer
+      )
+    );
+
+    const bar =
+      $('#timerBar');
+
+    if (bar) {
+      const percent =
+        Math.max(
+          0,
+          Math.min(
+            100,
+            (timer /
+              TURN_SECONDS) *
+              100
+          )
+        );
+
+      bar.style.width =
+        `${percent}%`;
+    }
+  }
+
+  function timeoutTurn() {
+    if (
+      gameOver ||
+      shotActive
+    ) {
+      return;
+    }
+
+    shotFoul = true;
+
+    const p =
+      currentPlayer();
+
+    if (p) {
+      p.fouls++;
+    }
+
+    addFeed(
+      `${p.name} timed out`
+    );
+
+    sfx.foul();
+
+    endTurn(false);
+  }
+
+  /* =======================================================
+     CAN PLAY
+     ======================================================= */
+
+  function canPlay() {
+    if (gameOver) return false;
+
+    if (shotActive) return false;
+
+    if (
+      mode === 'ai' &&
+      turn === 1
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /* =======================================================
+     CANVAS COORDINATES
+     ======================================================= */
+
+  function pointerToBoard(event) {
+    const rect =
+      canvas.getBoundingClientRect();
+
+    let clientX;
+    let clientY;
+
+    if (
+      event.touches &&
+      event.touches.length
+    ) {
+      clientX =
+        event.touches[0].clientX;
+
+      clientY =
+        event.touches[0].clientY;
+    } else if (
+      event.changedTouches &&
+      event.changedTouches.length
+    ) {
+      clientX =
+        event.changedTouches[0].clientX;
+
+      clientY =
+        event.changedTouches[0].clientY;
+    } else {
+      clientX =
+        event.clientX;
+
+      clientY =
+        event.clientY;
+    }
+
+    return {
+      x:
+        (clientX -
+          rect.left) *
+        (W / rect.width),
+
+      y:
+        (clientY -
+          rect.top) *
+        (H / rect.height)
+    };
+  }
+
+  /* =======================================================
+     STRIKER DRAG
+     ======================================================= */
+
+  function strikerHit(point) {
+    if (!striker) return false;
+
+    return distance(
+      point.x,
+      point.y,
+      striker.x,
+      striker.y
+    ) <=
+      striker.r + 22;
+  }
+
+  function startDrag(event) {
+    if (!canPlay()) return;
+
+    unlockAudio();
+
+    const point =
+      pointerToBoard(event);
+
+    if (
+      strikerHit(point)
+    ) {
+      event.preventDefault();
+
+      dragging = true;
+
+      dragPoint = {
+        x: point.x,
+        y: point.y
+      };
+
+      updatePowerFromDrag();
+
+      requestLoop();
+    }
+  }
+
+  function moveDrag(event) {
+    if (!dragging) return;
+
+    event.preventDefault();
+
+    dragPoint =
+      pointerToBoard(event);
+
+    updatePowerFromDrag();
+
+    requestLoop();
+  }
+
+  function endDrag(event) {
+    if (!dragging) return;
+
+    event.preventDefault();
+
+    if (
+      event.changedTouches &&
+      event.changedTouches.length
+    ) {
+      dragPoint =
+        pointerToBoard(event);
+    }
+
+    const point =
+      dragPoint || striker;
+
+    dragging = false;
+
+    const powerData =
+      calculateShot(
+        point
+      );
+
+    dragPoint = null;
+
+    updatePower(
+      powerData.power
+    );
+
+    if (
+      powerData.power <
+      0.04
+    ) {
+      updatePower(0);
+      render();
+      return;
+    }
+
+    shoot(
+      powerData.dx,
+      powerData.dy,
+      powerData.power
+    );
+  }
+
+  function updatePowerFromDrag() {
+    if (
+      !striker ||
+      !dragPoint
+    ) {
+      updatePower(0);
+      return;
+    }
+
+    const data =
+      calculateShot(
+        dragPoint
+      );
+
+    updatePower(
+      data.power
+    );
+  }
+
+  function calculateShot(target) {
+    const dx =
+      target.x -
+      striker.x;
+
+    const dy =
+      target.y -
+      striker.y;
+
+    const dist =
+      Math.sqrt(
+        dx * dx +
+        dy * dy
+      );
+
+    const normalized =
+      Math.max(
+        0,
+        Math.min(
+          1,
+          dist / 280
+        )
+      );
+
+    return {
+      dx,
+      dy,
+      distance: dist,
+      power: normalized
+    };
+  }
+
+  /* =======================================================
+     SHOOT
+     ======================================================= */
+
+  function shoot(
+    dx,
+    dy,
+    power
+  ) {
+    if (
+      !striker ||
+      gameOver ||
+      shotActive
+    ) {
+      return;
+    }
+
+    const length =
+      Math.sqrt(
+        dx * dx +
+        dy * dy
+      );
+
+    if (
+      length <
+      0.001
+    ) {
+      return;
+    }
+
+    /*
+      Drag from striker toward target.
+      Velocity therefore follows the drag direction.
+    */
+    const nx =
+      dx / length;
+
+    const ny =
+      dy / length;
+
+    striker.vx =
+      nx *
+      MAX_SHOT_POWER *
+      power;
+
+    striker.vy =
+      ny *
+      MAX_SHOT_POWER *
+      power;
+
+    shotActive = true;
+    shotStarted = true;
+
+    shotPocketed = 0;
+    shotQueen = false;
+    shotFoul = false;
+
+    currentPlayer().shots++;
+
+    clearInterval(timerId);
+
+    setStatus(
+      'Shot in play…'
+    );
+
+    addFeed(
+      `${currentPlayer().name} shoots`
+    );
+
+    sfx.hit(
+      power * 10
+    );
+
+    requestLoop();
+  }
+
+  /* =======================================================
+     AI
+     ======================================================= */
+
+  function aiShot() {
+    if (
+      gameOver ||
+      mode !== 'ai' ||
+      turn !== 1 ||
+      shotActive
+    ) {
 const POCKET_R = 34;
 
 /* ---------------------------------------------------------
