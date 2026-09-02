@@ -1,40 +1,1524 @@
 'use strict';
-const $=s=>document.querySelector(s), canvas=$('#board'), ctx=canvas.getContext('2d');
-const W=900, CX=450, CY=450, R=350, POCKETS=[[38,38],[862,38],[38,862],[862,862]], PR=34;
-const COLORS={gold:'#f6c84f',gold2:'#ffe07a',teal:'#31e1cb',red:'#ff5362',cream:'#f7ead0',black:'#1e2630'};
-let mode='ai',players=[],turn=0,coins=[],striker=null,drag=null,shot=false,looping=false,last=0,timer=20,timerId=null,gameOver=false,sound=true,audio=null,particles=[],stats=JSON.parse(localStorage.getItem('carromClashStats')||'{"games":0,"wins":0}');
-function playerTemplate(name,color){return{name,color,score:0,fouls:0,shots:0,queen:0,pocketed:0}}
-function initPlayers(){players=mode==='4p'?[['Player 1','#f6c84f'],['Player 2','#31e1cb'],['Player 3','#ff5362'],['Player 4','#b98cff']].map(x=>playerTemplate(x[0],x[1])):[playerTemplate('Player 1','#f6c84f'),playerTemplate(mode==='ai'?'Computer':'Player 2','#31e1cb')];}
-function unlockAudio(){if(!sound)return;if(!audio){try{audio=new(window.AudioContext||window.webkitAudioContext)()}catch(e){audio=null}}if(audio?.state==='suspended')audio.resume()}
-function tone(freq=440,d=.07,type='sine',gain=.035){if(!sound)return;unlockAudio();if(!audio)return;const o=audio.createOscillator(),g=audio.createGain(),t=audio.currentTime;o.type=type;o.frequency.setValueAtTime(freq,t);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(gain,t+.008);g.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(g);g.connect(audio.destination);o.start(t);o.stop(t+d+.02)}
-const sfx={click:()=>tone(560,.045,'triangle',.025),hit:(v=1)=>tone(150+Math.min(180,v*30),.055,'square',.018),rail:()=>tone(105,.06,'triangle',.025),pocket:()=>{tone(620,.08,'sine',.04);setTimeout(()=>tone(900,.12,'sine',.03),60)},queen:()=>{tone(520,.1,'triangle',.05);setTimeout(()=>tone(780,.12,'triangle',.045),70);setTimeout(()=>tone(1040,.14,'triangle',.035),150)},foul:()=>{tone(150,.13,'sawtooth',.04);setTimeout(()=>tone(100,.16,'sawtooth',.03),90)},win:()=>[523,659,784,1047,1319].forEach((n,i)=>setTimeout(()=>tone(n,.18,'triangle',.05),i*90))};
-function piece(x,y,r,color,type='coin'){return{x,y,r,color,type,vx:0,vy:0,pocketed:false}}
-function setup(){stopLoop();clearInterval(timerId);particles=[];coins=[];shot=false;gameOver=false;drag=null;striker=null;let ring=[...Array(6)].map((_,i)=>i);coins.push(piece(CX,CY,12,COLORS.red,'queen'));for(let rr=1;rr<=2;rr++)for(const i of [...Array(rr*6)].map((_,i)=>i)){const a=i*Math.PI*2/(rr*6)+(rr===2?.12:0);coins.push(piece(CX+Math.cos(a)*26*rr,CY+Math.sin(a)*26*rr,11,rr%2?COLORS.cream:COLORS.black))}for(let i=0;i<6;i++){const a=i*Math.PI/3;coins.push(piece(CX+Math.cos(a)*62,CY+Math.sin(a)*62,11,i%2?COLORS.cream:COLORS.black))}turn=0;updateHud();feed('Break shot ready. Aim directly through the center.');setTimer();draw();pulse('READY',COLORS.teal)}
-function start(m){unlockAudio();sfx.click();mode=m;initPlayers();$('#home').classList.remove('active');$('#game').classList.add('active');setup()}
-function reset(){unlockAudio();sfx.click();setup()}
-function stopLoop(){looping=false;last=0}
-function startLoop(){if(looping)return;looping=true;last=0;requestAnimationFrame(loop)}
-function loop(ts){if(!looping)return;if(!last)last=ts;const dt=Math.min(2.2,(ts-last)/16.67);last=ts;physics(dt);draw();if(looping&&(shot||moving()||particles.length))requestAnimationFrame(loop);else stopLoop()}
-function active(){return coins.filter(o=>!o.pocketed)}
-function moving(){return active().some(o=>Math.hypot(o.vx,o.vy)>.035)||(striker&&Math.hypot(striker.vx,striker.vy)>.035)}
-function setTimer(){clearInterval(timerId);timer=20;renderTimer();timerId=setInterval(()=>{if(gameOver||shot)return;timer--;renderTimer();if(timer<=0){players[turn].fouls++;sfx.foul();feed(players[turn].name+' timed out.');pulse('TIME OUT',COLORS.red);finishTurn(false)}},1000)}
-function renderTimer(){$('#timer').textContent=timer;$('#timerBar').style.width=(timer/20*100)+'%';$('#timerBar').classList.toggle('danger',timer<=5)}
-function updateHud(){const p=players[turn],p1=players[0],p2=players[1];$('#turnName').textContent=p?.name||'';$('#status').textContent=mode==='ai'&&turn===1?'Computer is thinking…':'Aim and shoot';$('#turnDot').style.background=p?.color||COLORS.gold;$('#turnDot').style.boxShadow=`0 0 18px ${p?.color||COLORS.gold}`;$('#p1Score').textContent=p1?.score||0;$('#p2Score').textContent=p2?.score||0;$('#p1Name').textContent=p1?.name||'';$('#p2Name').textContent=p2?.name||'';$('#p1Meta').textContent=p1?`${p1.score} points · ${p1.fouls} fouls`:'';$('#p2Meta').textContent=p2?`${p2.score} points · ${p2.fouls} fouls`:'';$('#p1Avatar').textContent='P1';$('#p2Avatar').textContent=mode==='ai'?'AI':'P2'}
-function feed(text){const e=document.createElement('div');e.textContent='› '+text;$('#feedList').prepend(e);while($('#feedList').children.length>9)$('#feedList').lastChild.remove()}
-function pulse(text,color=COLORS.gold){const e=document.createElement('div');e.className='fx-text';e.textContent=text;e.style.color=color;$('#fxLayer').appendChild(e);setTimeout(()=>e.remove(),850)}
-function toast(text){const e=$('#toast');e.textContent=text;e.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('show'),1100)}
-function burst(x,y,n=12){for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,v=1.5+Math.random()*4;particles.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:1,size:2+Math.random()*4})}startLoop()}
-function confetti(){for(let i=0;i<75;i++){const e=document.createElement('i');e.className='confetti';e.style.background=[COLORS.gold,COLORS.teal,COLORS.red,'#b98cff'][i%4];e.style.setProperty('--x',(Math.random()*600-300));e.style.setProperty('--y',(Math.random()*650+100));e.style.transform=`translate(-50%,0)`;e.style.left=(50+Math.random()*6-3)+'%';e.style.top=(38+Math.random()*5)+'%';$('#fxLayer').appendChild(e);setTimeout(()=>e.remove(),1500)}}
-function strikerPos(){if(players.length===4){const side=turn%4;if(side===0)return[CX,CY+245];if(side===1)return[CX+245,CY];if(side===2)return[CX,CY-245];return[CX-245,CY]}return[CX,CY+245]}
-function placeStriker(){const [x,y]=strikerPos();striker={x,y,r:18,vx:0,vy:0,color:COLORS.gold,pocketed:false}}
-function canPlay(){return !gameOver&&!shot&&!(mode==='ai'&&turn===1)}
-function pointer(e){const r=canvas.getBoundingClientRect();return{x:Math.max(0,Math.min(W,(e.clientX-r.left)*W/r.width)),y:Math.max(0,Math.min(W,(e.clientY-r.top)*W/r.height))}}
-function shoot(target){if(!striker)return;const dx=target.x-striker.x,dy=target.y-striker.y,len=Math.hypot(dx,dy);if(len<14){drag=null;setPower(0);return}const p=Math.min(18,Math.max(4,len/10));striker.vx=dx/len*p;striker.vy=dy/len*p;players[turn].shots++;shot=true;$('#status').textContent=players[turn].name+' shot in progress';feed(players[turn].name+' fired.');sfx.hit(p);setPower(0);startLoop()}
-function finishTurn(scored){if(gameOver)return;shot=false;if(striker?.pocketed){players[turn].fouls++;sfx.foul();feed(players[turn].name+' fouled: striker pocketed.');pulse('FOUL',COLORS.red)}else if(scored){feed(players[turn].name+' keeps the turn.');pulse('KEEP TURN',players[turn].color)}else turn=(turn+1)%players.length;placeStriker();updateHud();setTimer();draw();if(mode==='ai'&&turn===1)setTimeout(aiShot,550)}
-function aiShot(){if(!canPlay()||mode!=='ai'||turn!==1)return;const targets=active().filter(o=>o.type==='coin'||o.type==='queen');if(!targets.length){finishGame();return}const [sx,sy]=strikerPos();let best=targets[0],bestScore=1e9;for(const t of targets){const d=Math.hypot(t.x-sx,t.y-sy);if(d<bestScore){bestScore=d;best=t}}const angle=Math.atan2(best.y-sy,best.x-sx)+(Math.random()-.5)*.12;const dist=Math.min(175,bestScore*.8+80);striker={x:sx,y:sy,r:18,vx:Math.cos(angle)*Math.min(15,dist/12),vy:Math.sin(angle)*Math.min(15,dist/12),color:COLORS.gold,pocketed:false};players[turn].shots++;shot=true;$('#status').textContent='Computer shot in progress';feed('Computer fired.');sfx.hit(8);startLoop()}
-function pocketAt(x,y){return POCKETS.some(([px,py])=>Math.hypot(x-px,y-py)<PR)}
-function pocketCoin(o){if(o.pocketed)return;o.pocketed=true;o.vx=o.vy=0;if(o.type==='queen'){players[turn].score+=3;players[turn].queen++;sfx.queen();burst(o.x,o.y,30);pulse('QUEEN!',COLORS.red);feed(players[turn].name+' pocketed the Queen +3')}else{players[turn].score++;players[turn].pocketed++;sfx.pocket();burst(o.x,o.y,12);pulse('+1',COLORS.gold);feed(players[turn].name+' pocketed a coin +1')}updateHud()}
-function updateObj(o,dt,isStriker=false){if(Math.hypot(o.vx,o.vy)<.001){o.vx=o.vy=0;return}o.x+=o.vx*dt;o.y+=o.vy*dt;const f=Math.pow(.983,dt*60);o.vx*=f;o.vy*=f;if(pocketAt(o.x,o.y)){o.pocketed=true;o.vx=o.vy=0;if(isStriker){sfx.foul();pulse('FOUL',COLORS.red)}else pocketCoin(o);return}const dx=o.x-CX,dy=o.y-CY,d=Math.hypot(dx,dy),limit=R-o.r;if(d>limit){const nx=dx/(d||1),ny=dy/(d||1),dot=o.vx*nx+o.vy*ny;o.vx-=2*dot*nx;o.vy-=2*dot*ny;o.x=CX+nx*limit;o.y=CY+ny*limit;o.vx*=.91;o.vy*=.91;sfx.rail()}}
+
+/* =========================================================
+   CARROM CLASH — GAME ENGINE
+   Mobile-first • Precise aiming • 1P/2P/3P/4P
+   Web Audio • Physics • Pockets • Queen • Winner FX
+   ========================================================= */
+
+const $ = s => document.querySelector(s);
+
+const canvas = $('#board');
+const ctx = canvas ? canvas.getContext('2d') : null;
+
+const W = 900;
+const CX = 450;
+const CY = 450;
+
+/* Board geometry */
+const BOARD_R = 365;
+const RAIL_MIN = 52;
+const RAIL_MAX = 848;
+
+const POCKETS = [
+  [54, 54],
+  [846, 54],
+  [54, 846],
+  [846, 846]
+];
+
+const POCKET_R = 35;
+
+/* Theme */
+const C = {
+  gold: '#f7c84b',
+  gold2: '#ffe38a',
+  teal: '#39e2d0',
+  red: '#ff5365',
+  navy: '#071526',
+  navy2: '#102a42',
+  cream: '#f6dfae',
+  black: '#1c2732',
+  wood: '#b87b35',
+  white: '#ffffff'
+};
+
+/* =========================================================
+   GAME STATE
+   ========================================================= */
+
+let mode = 'ai';
+let players = [];
+let turn = 0;
+
+let coins = [];
+let striker = null;
+
+let dragging = false;
+let dragPoint = null;
+
+let shotActive = false;
+let shotPocketed = 0;
+let shotQueen = false;
+let shotFoul = false;
+
+let timer = 20;
+let timerId = null;
+
+let gameOver = false;
+
+let particles = [];
+let raf = 0;
+let lastTime = 0;
+
+let soundOn = true;
+let audioCtx = null;
+
+let stats = loadStats();
+
+/* =========================================================
+   STATS
+   ========================================================= */
+
+function loadStats() {
+  try {
+    const data = JSON.parse(
+      localStorage.getItem('carromClashStats')
+    );
+
+    return data || {
+      games: 0,
+      wins: 0
+    };
+  } catch {
+    return {
+      games: 0,
+      wins: 0
+    };
+  }
+}
+
+function saveStats() {
+  try {
+    localStorage.setItem(
+      'carromClashStats',
+      JSON.stringify(stats)
+    );
+  } catch {}
+}
+
+/* =========================================================
+   AUDIO ENGINE
+   No API / No external files
+   ========================================================= */
+
+function unlockAudio() {
+  if (!soundOn) return;
+
+  try {
+    if (!audioCtx) {
+      const AC =
+        window.AudioContext ||
+        window.webkitAudioContext;
+
+      if (AC) {
+        audioCtx = new AC();
+      }
+    }
+
+    if (
+      audioCtx &&
+      audioCtx.state === 'suspended'
+    ) {
+      audioCtx.resume();
+    }
+  } catch {}
+}
+
+function tone(
+  frequency = 440,
+  duration = 0.07,
+  type = 'sine',
+  volume = 0.035
+) {
+  if (!soundOn) return;
+
+  unlockAudio();
+
+  if (!audioCtx) return;
+
+  try {
+    const oscillator =
+      audioCtx.createOscillator();
+
+    const gain =
+      audioCtx.createGain();
+
+    const now =
+      audioCtx.currentTime;
+
+    oscillator.type = type;
+
+    oscillator.frequency.setValueAtTime(
+      frequency,
+      now
+    );
+
+    gain.gain.setValueAtTime(
+      0.0001,
+      now
+    );
+
+    gain.gain.exponentialRampToValueAtTime(
+      volume,
+      now + 0.008
+    );
+
+    gain.gain.exponentialRampToValueAtTime(
+      0.0001,
+      now + duration
+    );
+
+    oscillator.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    oscillator.start(now);
+    oscillator.stop(
+      now + duration + 0.025
+    );
+  } catch {}
+}
+
+const sfx = {
+
+  click() {
+    tone(
+      620,
+      0.045,
+      'triangle',
+      0.025
+    );
+  },
+
+  striker() {
+    tone(
+      180,
+      0.07,
+      'square',
+      0.025
+    );
+  },
+
+  hit(power = 1) {
+    tone(
+      135 + Math.min(260, power * 24),
+      0.055,
+      'square',
+      0.018
+    );
+  },
+
+  rail() {
+    tone(
+      95,
+      0.05,
+      'triangle',
+      0.018
+    );
+  },
+
+  pocket() {
+    tone(
+      650,
+      0.08,
+      'sine',
+      0.04
+    );
+
+    setTimeout(() => {
+      tone(
+        930,
+        0.12,
+        'sine',
+        0.03
+      );
+    }, 55);
+  },
+
+  queen() {
+    [520, 660, 820, 1040].forEach(
+      (n, i) => {
+        setTimeout(
+          () =>
+            tone(
+              n,
+              0.13,
+              'triangle',
+              0.045
+            ),
+          i * 75
+        );
+      }
+    );
+  },
+
+  foul() {
+    tone(
+      145,
+      0.13,
+      'sawtooth',
+      0.04
+    );
+
+    setTimeout(() => {
+      tone(
+        90,
+        0.16,
+        'sawtooth',
+        0.03
+      );
+    }, 90);
+  },
+
+  win() {
+    [523, 659, 784, 1047, 1319].forEach(
+      (n, i) => {
+        setTimeout(
+          () =>
+            tone(
+              n,
+              0.18,
+              'triangle',
+              0.05
+            ),
+          i * 90
+        );
+      }
+    );
+  }
+};
+
+/* =========================================================
+   PLAYERS
+   ========================================================= */
+
+function makePlayer(name, color) {
+  return {
+    name,
+    color,
+    score: 0,
+    fouls: 0,
+    shots: 0,
+    queen: 0,
+    pocketed: 0
+  };
+}
+
+function initPlayers() {
+
+  if (mode === 'ai') {
+
+    players = [
+      makePlayer(
+        'Player 1',
+        C.gold
+      ),
+
+      makePlayer(
+        'Computer',
+        C.teal
+      )
+    ];
+
+  } else if (mode === '2p') {
+
+    players = [
+      makePlayer(
+        'Player 1',
+        C.gold
+      ),
+
+      makePlayer(
+        'Player 2',
+        C.teal
+      )
+    ];
+
+  } else if (mode === '3p') {
+
+    players = [
+      makePlayer(
+        'Player 1',
+        C.gold
+      ),
+
+      makePlayer(
+        'Player 2',
+        C.teal
+      ),
+
+      makePlayer(
+        'Player 3',
+        C.red
+      )
+    ];
+
+  } else {
+
+    players = [
+      makePlayer(
+        'Player 1',
+        C.gold
+      ),
+
+      makePlayer(
+        'Player 2',
+        C.teal
+      ),
+
+      makePlayer(
+        'Player 3',
+        C.red
+      ),
+
+      makePlayer(
+        'Player 4',
+        '#b98cff'
+      )
+    ];
+  }
+}
+
+function modeLabel() {
+
+  if (mode === 'ai') {
+    return 'VS COMPUTER';
+  }
+
+  if (mode === '2p') {
+    return '2 PLAYER DUEL';
+  }
+
+  if (mode === '3p') {
+    return '3 PLAYER CLASH';
+  }
+
+  return '4 PLAYER CLASH';
+}
+
+/* =========================================================
+   STRIKER POSITION
+   ========================================================= */
+
+function sideForTurn() {
+  return turn % players.length;
+}
+
+function strikerPosition() {
+
+  const count =
+    players.length;
+
+  const side =
+    sideForTurn();
+
+  /*
+    IMPORTANT:
+    Striker is placed near the correct
+    baseline for every multiplayer mode.
+  */
+
+  const edge =
+    BOARD_R - 92;
+
+  /* 1P / 2P */
+  if (count === 2) {
+
+    if (side === 0) {
+      return [
+        CX,
+        CY + edge
+      ];
+    }
+
+    return [
+      CX,
+      CY - edge
+    ];
+  }
+
+  /* 3 players */
+  if (count === 3) {
+
+    if (side === 0) {
+      return [
+        CX,
+        CY + edge
+      ];
+    }
+
+    if (side === 1) {
+      return [
+        CX + edge,
+        CY
+      ];
+    }
+
+    return [
+      CX - edge,
+      CY
+    ];
+  }
+
+  /* 4 players */
+
+  if (side === 0) {
+    return [
+      CX,
+      CY + edge
+    ];
+  }
+
+  if (side === 1) {
+    return [
+      CX + edge,
+      CY
+    ];
+  }
+
+  if (side === 2) {
+    return [
+      CX,
+      CY - edge
+    ];
+  }
+
+  return [
+    CX - edge,
+    CY
+  ];
+}
+
+function placeStriker() {
+
+  const [
+    x,
+    y
+  ] = strikerPosition();
+
+  striker = {
+    x,
+    y,
+    r: 18,
+    vx: 0,
+    vy: 0,
+    pocketed: false
+  };
+}
+
+/* =========================================================
+   SETUP
+   ========================================================= */
+
+function setup() {
+
+  stopLoop();
+
+  clearInterval(timerId);
+
+  particles = [];
+
+  coins = [];
+
+  shotActive = false;
+  dragging = false;
+  dragPoint = null;
+
+  gameOver = false;
+
+  shotPocketed = 0;
+  shotQueen = false;
+  shotFoul = false;
+
+  createCoins();
+
+  turn = 0;
+
+  placeStriker();
+
+  updateHud();
+
+  setPower(0);
+
+  feed(
+    'Break ready · drag striker toward the target'
+  );
+
+  setTimer();
+
+  draw();
+
+  pulse(
+    'READY',
+    C.teal
+  );
+}
+
+function createCoins() {
+
+  coins.push({
+    x: CX,
+    y: CY,
+    r: 12,
+    color: C.red,
+    type: 'queen',
+    vx: 0,
+    vy: 0,
+    pocketed: false
+  });
+
+  /* Inner ring */
+
+  const ring1 = 6;
+
+  for (
+    let i = 0;
+    i < ring1;
+    i++
+  ) {
+
+    const angle =
+      Math.PI * 2 * i / ring1;
+
+    coins.push({
+      x:
+        CX +
+        Math.cos(angle) * 27,
+
+      y:
+        CY +
+        Math.sin(angle) * 27,
+
+      r: 11,
+
+      color:
+        i % 2
+          ? C.cream
+          : C.black,
+
+      type: 'coin',
+
+      vx: 0,
+      vy: 0,
+
+      pocketed: false
+    });
+  }
+
+  /* Outer ring */
+
+  const ring2 = 12;
+
+  for (
+    let i = 0;
+    i < ring2;
+    i++
+  ) {
+
+    const angle =
+      Math.PI * 2 * i / ring2 +
+      Math.PI / 12;
+
+    coins.push({
+      x:
+        CX +
+        Math.cos(angle) * 52,
+
+      y:
+        CY +
+        Math.sin(angle) * 52,
+
+      r: 11,
+
+      color:
+        i % 2
+          ? C.cream
+          : C.black,
+
+      type: 'coin',
+
+      vx: 0,
+      vy: 0,
+
+      pocketed: false
+    });
+  }
+}
+
+/* =========================================================
+   START / RESET
+   ========================================================= */
+
+function start(selectedMode) {
+
+  mode =
+    selectedMode;
+
+  unlockAudio();
+
+  sfx.click();
+
+  initPlayers();
+
+  const home =
+    $('#home');
+
+  const game =
+    $('#game');
+
+  if (home) {
+    home.classList.remove(
+      'active'
+    );
+  }
+
+  if (game) {
+    game.classList.add(
+      'active'
+    );
+  }
+
+  setup();
+}
+
+function reset() {
+
+  unlockAudio();
+
+  sfx.click();
+
+  setup();
+}
+
+/* =========================================================
+   LOOP
+   ========================================================= */
+
+function startLoop() {
+
+  if (raf) return;
+
+  lastTime = 0;
+
+  raf =
+    requestAnimationFrame(
+      gameLoop
+    );
+}
+
+function stopLoop() {
+
+  if (raf) {
+    cancelAnimationFrame(
+      raf
+    );
+  }
+
+  raf = 0;
+
+  lastTime = 0;
+}
+
+function gameLoop(time) {
+
+  if (!raf) {
+    return;
+  }
+
+  if (!lastTime) {
+    lastTime = time;
+  }
+
+  const dt =
+    Math.min(
+      2.2,
+      (time - lastTime) /
+        16.67
+    );
+
+  lastTime = time;
+
+  physics(dt);
+
+  draw();
+
+  if (
+    shotActive ||
+    moving() ||
+    particles.length ||
+    dragging
+  ) {
+
+    raf =
+      requestAnimationFrame(
+        gameLoop
+      );
+
+  } else {
+
+    stopLoop();
+  }
+}
+
+/* =========================================================
+   GAME STATE
+   ========================================================= */
+
+function canPlay() {
+
+  return (
+    !gameOver &&
+    !shotActive &&
+    !(
+      mode === 'ai' &&
+      turn === 1
+    )
+  );
+}
+
+function moving() {
+
+  if (
+    striker &&
+    !striker.pocketed &&
+    Math.hypot(
+      striker.vx,
+      striker.vy
+    ) > 0.045
+  ) {
+    return true;
+  }
+
+  return coins.some(
+    coin =>
+      !coin.pocketed &&
+      Math.hypot(
+        coin.vx,
+        coin.vy
+      ) > 0.045
+  );
+}
+
+/* =========================================================
+   TIMER
+   ========================================================= */
+
+function setTimer() {
+
+  clearInterval(timerId);
+
+  timer = 20;
+
+  renderTimer();
+
+  timerId =
+    setInterval(
+      () => {
+
+        if (
+          gameOver ||
+          shotActive
+        ) {
+          return;
+        }
+
+        timer--;
+
+        renderTimer();
+
+        if (timer <= 0) {
+
+          clearInterval(
+            timerId
+          );
+
+          players[turn].fouls++;
+
+          shotFoul = true;
+
+          sfx.foul();
+
+          feed(
+            players[turn].name +
+            ' timed out'
+          );
+
+          pulse(
+            'TIME OUT',
+            C.red
+          );
+
+          endTurn(false);
+        }
+
+      },
+      1000
+    );
+}
+
+function renderTimer() {
+
+  const timerEl =
+    $('#timer');
+
+  if (timerEl) {
+    timerEl.textContent =
+      timer;
+  }
+
+  const bar =
+    $('#timerBar');
+
+  if (bar) {
+
+    bar.style.width =
+      `${timer * 5}%`;
+
+    bar.classList.toggle(
+      'danger',
+      timer <= 5
+    );
+  }
+}
+
+/* =========================================================
+   HUD
+   ========================================================= */
+
+function updateHud() {
+
+  const player =
+    players[turn] || {};
+
+  const setText =
+    (selector, value) => {
+
+      const el =
+        $(selector);
+
+      if (el) {
+        el.textContent =
+          value;
+      }
+    };
+
+  setText(
+    '#turnName',
+    player.name || ''
+  );
+
+  setText(
+    '#status',
+    mode === 'ai' &&
+    turn === 1
+      ? 'Computer is thinking…'
+      : 'Aim and shoot'
+  );
+
+  const dot =
+    $('#turnDot');
+
+  if (dot) {
+
+    const color =
+      player.color ||
+      C.gold;
+
+    dot.style.background =
+      color;
+
+    dot.style.boxShadow =
+      `0 0 18px ${color}`;
+  }
+
+  const p1 =
+    players[0];
+
+  const p2 =
+    players[1];
+
+  setText(
+    '#p1Score',
+    p1?.score || 0
+  );
+
+  setText(
+    '#p2Score',
+    p2?.score || 0
+  );
+
+  setText(
+    '#p1Name',
+    p1?.name || ''
+  );
+
+  setText(
+    '#p2Name',
+    p2?.name || ''
+  );
+
+  setText(
+    '#p1Meta',
+    p1
+      ? `${p1.score} points · ${p1.fouls} fouls`
+      : ''
+  );
+
+  setText(
+    '#p2Meta',
+    p2
+      ? `${p2.score} points · ${p2.fouls} fouls`
+      : ''
+  );
+
+  setText(
+    '#p1Avatar',
+    'P1'
+  );
+
+  setText(
+    '#p2Avatar',
+    p2?.name === 'Computer'
+      ? 'AI'
+      : 'P2'
+  );
+}
+
+/* =========================================================
+   UI FX
+   ========================================================= */
+
+function feed(text) {
+
+  const list =
+    $('#feedList');
+
+  if (!list) return;
+
+  const item =
+    document.createElement(
+      'div'
+    );
+
+  item.textContent =
+    '› ' + text;
+
+  list.prepend(item);
+
+  while (
+    list.children.length >
+    8
+  ) {
+    list.lastChild.remove();
+  }
+}
+
+function pulse(
+  text,
+  color = C.gold
+) {
+
+  const layer =
+    $('#fxLayer');
+
+  if (!layer) return;
+
+  const el =
+    document.createElement(
+      'div'
+    );
+
+  el.className =
+    'fx-text';
+
+  el.textContent =
+    text;
+
+  el.style.color =
+    color;
+
+  layer.appendChild(el);
+
+  setTimeout(
+    () => el.remove(),
+    900
+  );
+}
+
+function toast(text) {
+
+  const el =
+    $('#toast');
+
+  if (!el) return;
+
+  el.textContent =
+    text;
+
+  el.classList.add(
+    'show'
+  );
+
+  clearTimeout(
+    toast.timer
+  );
+
+  toast.timer =
+    setTimeout(
+      () =>
+        el.classList.remove(
+          'show'
+        ),
+      1100
+    );
+}
+
+/* =========================================================
+   PARTICLES
+   ========================================================= */
+
+function burst(
+  x,
+  y,
+  count = 16
+) {
+
+  for (
+    let i = 0;
+    i < count;
+    i++
+  ) {
+
+    const angle =
+      Math.random() *
+      Math.PI *
+      2;
+
+    const velocity =
+      1.2 +
+      Math.random() * 4.5;
+
+    particles.push({
+      x,
+      y,
+
+      vx:
+        Math.cos(angle) *
+        velocity,
+
+      vy:
+        Math.sin(angle) *
+        velocity,
+
+      size:
+        2 +
+        Math.random() * 4,
+
+      life: 1
+    });
+  }
+
+  startLoop();
+}
+
+function confetti() {
+
+  const colors = [
+    C.gold,
+    C.teal,
+    C.red,
+    '#b98cff'
+  ];
+
+  for (
+    let i = 0;
+    i < 100;
+    i++
+  ) {
+
+    const angle =
+      Math.random() *
+      Math.PI *
+      2;
+
+    const velocity =
+      2 +
+      Math.random() * 7;
+
+    particles.push({
+      x: CX,
+      y: CY,
+
+      vx:
+        Math.cos(angle) *
+        velocity,
+
+      vy:
+        Math.sin(angle) *
+        velocity,
+
+      size:
+        3 +
+        Math.random() * 5,
+
+      life:
+        1.2,
+
+      color:
+        colors[
+          i % colors.length
+        ]
+    });
+  }
+
+  startLoop();
+}
+
+/* =========================================================
+   POINTER COORDINATES
+   ========================================================= */
+
+function pointer(e) {
+
+  const rect =
+    canvas.getBoundingClientRect();
+
+  return {
+
+    x:
+      Math.max(
+        0,
+        Math.min(
+          W,
+          (e.clientX -
+            rect.left) *
+            W /
+            rect.width
+        )
+      ),
+
+    y:
+      Math.max(
+        0,
+        Math.min(
+          W,
+          (e.clientY -
+            rect.top) *
+            W /
+            rect.height
+        )
+      )
+  };
+}
+
+/* =========================================================
+   POWER
+   ========================================================= */
+
+function setPower(value) {
+
+  const power =
+    Math.max(
+      0,
+      Math.min(
+        100,
+        value
+      )
+    );
+
+  const fill =
+    $('#powerFill');
+
+  if (fill) {
+    fill.style.width =
+      power + '%';
+  }
+
+  const valueEl =
+    $('#powerValue');
+
+  if (valueEl) {
+    valueEl.textContent =
+      Math.round(power) +
+      '%';
+  }
+}
+
+/* =========================================================
+   SHOOT
+   ========================================================= */
+
+function shoot(target) {
+
+  if (
+    !striker ||
+    striker.pocketed
+  ) {
+    return;
+  }
+
+  /*
+    CENTER SNAP:
+    If player is aiming close to the
+    red queen / center, automatically
+    lock target to exact center.
+  */
+
+  const distanceToCenter =
+    Math.hypot(
+      target.x - CX,
+      target.y - CY
+    );
+
+  if (
+    distanceToCenter <
+    72
+  ) {
+
+    target = {
+      x: CX,
+      y: CY
+    };
+
+    pulse(
+      'CENTER AIM',
+      C.teal
+    );
+  }
+
+  const dx =
+    target.x -
+    striker.x;
+
+  const dy =
+    target.y -
+    striker.y;
+
+  const distance =
+    Math.hypot(
+      dx,
+      dy
+    );
+
+  if (
+    distance <
+    16
+  ) {
+
+    setPower(0);
+
+    return;
+  }
+
+  /*
+    Power is proportional to drag distance.
+    Maximum speed is controlled for stable physics.
+  */
+
+  const power =
+    Math.max(
+      5.2,
+      Math.min(
+        18,
+        distance / 13
+      )
+    );
+
+  striker.vx =
+    (dx / distance) *
+    power;
+
+  striker.vy =
+    (dy / distance) *
+    power;
+
+  players[turn].shots++;
+
+  shotActive = true;
+
+  shotPocketed = 0;
+  shotQueen = false;
+  shotFoul = false;
+
+  dragging = false;
+
+  setPower(0);
+
+  const status =
+    $('#status');
+
+  if (status) {
+    status.textContent =
+      players[turn].name +
+      ' shot in progress';
+  }
+
+  feed(
+    players[turn].name +
+    ' fired · ' +
+    Math.round(
+      Math.min(
+        100,
+        distance / 4.5
+      )
+    ) +
+    '% power'
+  );
+
+  sfx.striker();
+
+  startLoop();
+}
+
+/* =========================================================
+   POCKET DETECTION
+   ========================================================= */
+
+function pocketAt(
+  x,
+  y
+) {
+
+  return POCKETS.some(
+    ([px, py]) =>
+      Math.hypot(
+        x - px,
+        y - py
+      ) <=
+      POCKET_R
+  );
+}
+
+/* =========================================================
+   POCKET COIN
+   ========================================================= */
+
+function pocketCoin(
+  coin
+) {
+
+  if (
+    coin.pocketed
+  ) {
+    return;
+  }
+
+  coin.pocketed = true;
+
+  coin.vx = 0;
+  coin.vy = 0;
+
+  if (
+    coin.type === 'queen'
+  ) {
+
+    players[turn].score += 3;
+
+    players[turn].queen++;
+
+    shotQueen = true;
+
+    sfx.queen();
+
+    burst(
+      coin.x,
+      coin.y,
+      34
+    );
+
+    pulse(
+      'QUEEN +3',
+      C.red
+    );
+
+    feed(
+      players[turn].name +
+      ' pocketed the Queen +3'
+    );
+
+  } else {
+
+    players[turn].score++;
+
+    players[turn].pocketed++;
+
+    shotPocketed++;
+
+    sfx.pocket();
+
+    burst(
+      coin.x,
+      coin.y,
+      18
+    );
+
+    pulse(
+      '+1',
+      C.gold
+    );
+
+    feed(
+      players[turn].name +
+      ' pocketed a coin +1'
+    );
+  }
+
+  updateHud();
+}
+
+/* =========================================================
+   OBJECT PHYSICS
+   ========================================================= */
+
+function updateObject(
+  object,
+  dt,
+  isStriker = false
+) {
+
+  if (
+    object.pocketed
+  ) {
+    return;
+  }
+
+  object.x +=
+    object.vx * dt;
+
+  object.y +=
+    object.vy * dt;
+
+  /*
+    Friction
+  */
+
+  const friction =
+    Math.pow(
+      0.983,
+      dt * 60
+    );
+
+  object.vx *= friction;
+  object.vy *= friction;
+
+  if (
+    Math.hypot(
+      object.vx,
+      object.vy
+    ) < 0.018
+  ) {
+
+    objectfunction updateObj(o,dt,isStriker=false){if(Math.hypot(o.vx,o.vy)<.001){o.vx=o.vy=0;return}o.x+=o.vx*dt;o.y+=o.vy*dt;const f=Math.pow(.983,dt*60);o.vx*=f;o.vy*=f;if(pocketAt(o.x,o.y)){o.pocketed=true;o.vx=o.vy=0;if(isStriker){sfx.foul();pulse('FOUL',COLORS.red)}else pocketCoin(o);return}const dx=o.x-CX,dy=o.y-CY,d=Math.hypot(dx,dy),limit=R-o.r;if(d>limit){const nx=dx/(d||1),ny=dy/(d||1),dot=o.vx*nx+o.vy*ny;o.vx-=2*dot*nx;o.vy-=2*dot*ny;o.x=CX+nx*limit;o.y=CY+ny*limit;o.vx*=.91;o.vy*=.91;sfx.rail()}}
 function collide(a,b){if(!a||!b||a.pocketed||b.pocketed)return false;const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy),min=a.r+b.r;if(d<=0||d>=min)return false;const nx=dx/d,ny=dy/d,over=min-d;a.x-=nx*over/2;a.y-=ny*over/2;b.x+=nx*over/2;b.y+=ny*over/2;const rel=(a.vx-b.vx)*nx+(a.vy-b.vy)*ny;if(rel<=0)return false;const impulse=rel*.96;a.vx-=impulse*nx;a.vy-=impulse*ny;b.vx+=impulse*nx;b.vy+=impulse*ny;sfx.hit(Math.min(10,rel));return true}
 function physics(dt){if(striker&&!striker.pocketed)updateObj(striker,dt,true);for(const o of active())updateObj(o,dt,false);const all=striker&&!striker.pocketed?[striker,...active()]:active();for(let i=0;i<all.length;i++)for(let j=i+1;j<all.length;j++)collide(all[i],all[j]);for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vy+=.04;p.vx*=.985;p.life-=.022}particles=particles.filter(p=>p.life>0);if(shot&&!moving()){const scored=players[turn].pocketed>0;coins=coins.filter(o=>!o.pocketed);if(coins.filter(o=>o.type==='coin').length===0)finishGame();else finishTurn(scored)}}
 function finishGame(){if(gameOver)return;gameOver=true;clearInterval(timerId);coins=coins.filter(o=>!o.pocketed);const winner=players.reduce((a,b)=>b.score>a.score?b:a,players[0]);stats.games++;if(mode==='ai'&&winner===players[0])stats.wins++;localStorage.setItem('carromClashStats',JSON.stringify(stats));sfx.win();burst(CX,CY,70);confetti();showWinner(winner)}
