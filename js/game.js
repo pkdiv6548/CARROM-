@@ -1,4 +1,4 @@
-'use strict';
+ 'use strict';
 
 /* =========================================================
    CARROM CLASH — MOBILE FIRST GAME ENGINE
@@ -1487,732 +1487,6 @@ function pocketCoin(coin) {
     );
 
     feed(
-    (time - lastTime) /
-        16.67
-    );
-
-  lastTime = time;
-
-  physics(dt);
-
-  draw();
-
-  if (
-    shotActive ||
-    moving() ||
-    particles.length ||
-    dragging
-  ) {
-
-    raf =
-      requestAnimationFrame(
-        gameLoop
-      );
-
-  } else {
-
-    stopLoop();
-  }
-}
-
-/* =========================================================
-   GAME STATE
-   ========================================================= */
-
-function canPlay() {
-
-  return (
-    !gameOver &&
-    !shotActive &&
-    !(
-      mode === 'ai' &&
-      turn === 1
-    )
-  );
-}
-
-function moving() {
-
-  if (
-    striker &&
-    !striker.pocketed &&
-    Math.hypot(
-      striker.vx,
-      striker.vy
-    ) > 0.045
-  ) {
-    return true;
-  }
-
-  return coins.some(
-    coin =>
-      !coin.pocketed &&
-      Math.hypot(
-        coin.vx,
-        coin.vy
-      ) > 0.045
-  );
-}
-
-/* =========================================================
-   TIMER
-   ========================================================= */
-
-function setTimer() {
-
-  clearInterval(timerId);
-
-  timer = 20;
-
-  renderTimer();
-
-  timerId =
-    setInterval(
-      () => {
-
-        if (
-          gameOver ||
-          shotActive
-        ) {
-          return;
-        }
-
-        timer--;
-
-        renderTimer();
-
-        if (timer <= 0) {
-
-          clearInterval(
-            timerId
-          );
-
-          players[turn].fouls++;
-
-          shotFoul = true;
-
-          sfx.foul();
-
-          feed(
-            players[turn].name +
-            ' timed out'
-          );
-
-          pulse(
-            'TIME OUT',
-            C.red
-          );
-
-          endTurn(false);
-        }
-
-      },
-      1000
-    );
-}
-
-function renderTimer() {
-
-  const timerEl =
-    $('#timer');
-
-  if (timerEl) {
-    timerEl.textContent =
-      timer;
-  }
-
-  const bar =
-    $('#timerBar');
-
-  if (bar) {
-
-    bar.style.width =
-      `${timer * 5}%`;
-
-    bar.classList.toggle(
-      'danger',
-      timer <= 5
-    );
-  }
-}
-
-/* =========================================================
-   HUD
-   ========================================================= */
-
-function updateHud() {
-
-  const player =
-    players[turn] || {};
-
-  const setText =
-    (selector, value) => {
-
-      const el =
-        $(selector);
-
-      if (el) {
-        el.textContent =
-          value;
-      }
-    };
-
-  setText(
-    '#turnName',
-    player.name || ''
-  );
-
-  setText(
-    '#status',
-    mode === 'ai' &&
-    turn === 1
-      ? 'Computer is thinking…'
-      : 'Aim and shoot'
-  );
-
-  const dot =
-    $('#turnDot');
-
-  if (dot) {
-
-    const color =
-      player.color ||
-      C.gold;
-
-    dot.style.background =
-      color;
-
-    dot.style.boxShadow =
-      `0 0 18px ${color}`;
-  }
-
-  const p1 =
-    players[0];
-
-  const p2 =
-    players[1];
-
-  setText(
-    '#p1Score',
-    p1?.score || 0
-  );
-
-  setText(
-    '#p2Score',
-    p2?.score || 0
-  );
-
-  setText(
-    '#p1Name',
-    p1?.name || ''
-  );
-
-  setText(
-    '#p2Name',
-    p2?.name || ''
-  );
-
-  setText(
-    '#p1Meta',
-    p1
-      ? `${p1.score} points · ${p1.fouls} fouls`
-      : ''
-  );
-
-  setText(
-    '#p2Meta',
-    p2
-      ? `${p2.score} points · ${p2.fouls} fouls`
-      : ''
-  );
-
-  setText(
-    '#p1Avatar',
-    'P1'
-  );
-
-  setText(
-    '#p2Avatar',
-    p2?.name === 'Computer'
-      ? 'AI'
-      : 'P2'
-  );
-}
-
-/* =========================================================
-   UI FX
-   ========================================================= */
-
-function feed(text) {
-
-  const list =
-    $('#feedList');
-
-  if (!list) return;
-
-  const item =
-    document.createElement(
-      'div'
-    );
-
-  item.textContent =
-    '› ' + text;
-
-  list.prepend(item);
-
-  while (
-    list.children.length >
-    8
-  ) {
-    list.lastChild.remove();
-  }
-}
-
-function pulse(
-  text,
-  color = C.gold
-) {
-
-  const layer =
-    $('#fxLayer');
-
-  if (!layer) return;
-
-  const el =
-    document.createElement(
-      'div'
-    );
-
-  el.className =
-    'fx-text';
-
-  el.textContent =
-    text;
-
-  el.style.color =
-    color;
-
-  layer.appendChild(el);
-
-  setTimeout(
-    () => el.remove(),
-    900
-  );
-}
-
-function toast(text) {
-
-  const el =
-    $('#toast');
-
-  if (!el) return;
-
-  el.textContent =
-    text;
-
-  el.classList.add(
-    'show'
-  );
-
-  clearTimeout(
-    toast.timer
-  );
-
-  toast.timer =
-    setTimeout(
-      () =>
-        el.classList.remove(
-          'show'
-        ),
-      1100
-    );
-}
-
-/* =========================================================
-   PARTICLES
-   ========================================================= */
-
-function burst(
-  x,
-  y,
-  count = 16
-) {
-
-  for (
-    let i = 0;
-    i < count;
-    i++
-  ) {
-
-    const angle =
-      Math.random() *
-      Math.PI *
-      2;
-
-    const velocity =
-      1.2 +
-      Math.random() * 4.5;
-
-    particles.push({
-      x,
-      y,
-
-      vx:
-        Math.cos(angle) *
-        velocity,
-
-      vy:
-        Math.sin(angle) *
-        velocity,
-
-      size:
-        2 +
-        Math.random() * 4,
-
-      life: 1
-    });
-  }
-
-  startLoop();
-}
-
-function confetti() {
-
-  const colors = [
-    C.gold,
-    C.teal,
-    C.red,
-    '#b98cff'
-  ];
-
-  for (
-    let i = 0;
-    i < 100;
-    i++
-  ) {
-
-    const angle =
-      Math.random() *
-      Math.PI *
-      2;
-
-    const velocity =
-      2 +
-      Math.random() * 7;
-
-    particles.push({
-      x: CX,
-      y: CY,
-
-      vx:
-        Math.cos(angle) *
-        velocity,
-
-      vy:
-        Math.sin(angle) *
-        velocity,
-
-      size:
-        3 +
-        Math.random() * 5,
-
-      life:
-        1.2,
-
-      color:
-        colors[
-          i % colors.length
-        ]
-    });
-  }
-
-  startLoop();
-}
-
-/* =========================================================
-   POINTER COORDINATES
-   ========================================================= */
-
-function pointer(e) {
-
-  const rect =
-    canvas.getBoundingClientRect();
-
-  return {
-
-    x:
-      Math.max(
-        0,
-        Math.min(
-          W,
-          (e.clientX -
-            rect.left) *
-            W /
-            rect.width
-        )
-      ),
-
-    y:
-      Math.max(
-        0,
-        Math.min(
-          W,
-          (e.clientY -
-            rect.top) *
-            W /
-            rect.height
-        )
-      )
-  };
-}
-
-/* =========================================================
-   POWER
-   ========================================================= */
-
-function setPower(value) {
-
-  const power =
-    Math.max(
-      0,
-      Math.min(
-        100,
-        value
-      )
-    );
-
-  const fill =
-    $('#powerFill');
-
-  if (fill) {
-    fill.style.width =
-      power + '%';
-  }
-
-  const valueEl =
-    $('#powerValue');
-
-  if (valueEl) {
-    valueEl.textContent =
-      Math.round(power) +
-      '%';
-  }
-}
-
-/* =========================================================
-   SHOOT
-   ========================================================= */
-
-function shoot(target) {
-
-  if (
-    !striker ||
-    striker.pocketed
-  ) {
-    return;
-  }
-
-  /*
-    CENTER SNAP:
-    If player is aiming close to the
-    red queen / center, automatically
-    lock target to exact center.
-  */
-
-  const distanceToCenter =
-    Math.hypot(
-      target.x - CX,
-      target.y - CY
-    );
-
-  if (
-    distanceToCenter <
-    72
-  ) {
-
-    target = {
-      x: CX,
-      y: CY
-    };
-
-    pulse(
-      'CENTER AIM',
-      C.teal
-    );
-  }
-
-  const dx =
-    target.x -
-    striker.x;
-
-  const dy =
-    target.y -
-    striker.y;
-
-  const distance =
-    Math.hypot(
-      dx,
-      dy
-    );
-
-  if (
-    distance <
-    16
-  ) {
-
-    setPower(0);
-
-    return;
-  }
-
-  /*
-    Power is proportional to drag distance.
-    Maximum speed is controlled for stable physics.
-  */
-
-  const power =
-    Math.max(
-      5.2,
-      Math.min(
-        18,
-        distance / 13
-      )
-    );
-
-  striker.vx =
-    (dx / distance) *
-    power;
-
-  striker.vy =
-    (dy / distance) *
-    power;
-
-  players[turn].shots++;
-
-  shotActive = true;
-
-  shotPocketed = 0;
-  shotQueen = false;
-  shotFoul = false;
-
-  dragging = false;
-
-  setPower(0);
-
-  const status =
-    $('#status');
-
-  if (status) {
-    status.textContent =
-      players[turn].name +
-      ' shot in progress';
-  }
-
-  feed(
-    players[turn].name +
-    ' fired · ' +
-    Math.round(
-      Math.min(
-        100,
-        distance / 4.5
-      )
-    ) +
-    '% power'
-  );
-
-  sfx.striker();
-
-  startLoop();
-}
-
-/* =========================================================
-   POCKET DETECTION
-   ========================================================= */
-
-function pocketAt(
-  x,
-  y
-) {
-
-  return POCKETS.some(
-    ([px, py]) =>
-      Math.hypot(
-        x - px,
-        y - py
-      ) <=
-      POCKET_R
-  );
-}
-
-/* =========================================================
-   POCKET COIN
-   ========================================================= */
-
-function pocketCoin(
-  coin
-) {
-
-  if (
-    coin.pocketed
-  ) {
-    return;
-  }
-
-  coin.pocketed = true;
-
-  coin.vx = 0;
-  coin.vy = 0;
-
-  if (
-    coin.type === 'queen'
-  ) {
-
-    players[turn].score += 3;
-
-    players[turn].queen++;
-
-    shotQueen = true;
-
-    sfx.queen();
-
-    burst(
-      coin.x,
-      coin.y,
-      34
-    );
-
-    pulse(
-      'QUEEN +3',
-      C.red
-    );
-
-    feed(
-      players[turn].name +
-      ' pocketed the Queen +3'
-    );
-
-  } else {
-
-    players[turn].score++;
-
-    players[turn].pocketed++;
-
-    shotPocketed++;
-
-    sfx.pocket();
-
-    burst(
-      coin.x,
-      coin.y,
-      18
-    );
-
-    pulse(
-      '+1',
-      C.gold
-    );
-
-    feed(
       players[turn].name +
       ' pocketed a coin +1'
     );
@@ -2221,9 +1495,9 @@ function pocketCoin(
   updateHud();
 }
 
-/* =========================================================
-   OBJECT PHYSICS
-   ========================================================= */
+/* ---------------------------------------------------------
+   PHYSICS
+--------------------------------------------------------- */
 
 function updateObject(
   object,
@@ -2232,20 +1506,19 @@ function updateObject(
 ) {
 
   if (
+    !object ||
     object.pocketed
   ) {
     return;
   }
 
   object.x +=
-    object.vx * dt;
+    object.vx *
+    dt;
 
   object.y +=
-    object.vy * dt;
-
-  /*
-    Friction
-  */
+    object.vy *
+    dt;
 
   const friction =
     Math.pow(
@@ -2253,8 +1526,11 @@ function updateObject(
       dt * 60
     );
 
-  object.vx *= friction;
-  object.vy *= friction;
+  object.vx *=
+    friction;
+
+  object.vy *=
+    friction;
 
   if (
     Math.hypot(
@@ -2263,21 +1539,441 @@ function updateObject(
     ) < 0.018
   ) {
 
-    objectfunction updateObj(o,dt,isStriker=false){if(Math.hypot(o.vx,o.vy)<.001){o.vx=o.vy=0;return}o.x+=o.vx*dt;o.y+=o.vy*dt;const f=Math.pow(.983,dt*60);o.vx*=f;o.vy*=f;if(pocketAt(o.x,o.y)){o.pocketed=true;o.vx=o.vy=0;if(isStriker){sfx.foul();pulse('FOUL',COLORS.red)}else pocketCoin(o);return}const dx=o.x-CX,dy=o.y-CY,d=Math.hypot(dx,dy),limit=R-o.r;if(d>limit){const nx=dx/(d||1),ny=dy/(d||1),dot=o.vx*nx+o.vy*ny;o.vx-=2*dot*nx;o.vy-=2*dot*ny;o.x=CX+nx*limit;o.y=CY+ny*limit;o.vx*=.91;o.vy*=.91;sfx.rail()}}
-function collide(a,b){if(!a||!b||a.pocketed||b.pocketed)return false;const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy),min=a.r+b.r;if(d<=0||d>=min)return false;const nx=dx/d,ny=dy/d,over=min-d;a.x-=nx*over/2;a.y-=ny*over/2;b.x+=nx*over/2;b.y+=ny*over/2;const rel=(a.vx-b.vx)*nx+(a.vy-b.vy)*ny;if(rel<=0)return false;const impulse=rel*.96;a.vx-=impulse*nx;a.vy-=impulse*ny;b.vx+=impulse*nx;b.vy+=impulse*ny;sfx.hit(Math.min(10,rel));return true}
-function physics(dt){if(striker&&!striker.pocketed)updateObj(striker,dt,true);for(const o of active())updateObj(o,dt,false);const all=striker&&!striker.pocketed?[striker,...active()]:active();for(let i=0;i<all.length;i++)for(let j=i+1;j<all.length;j++)collide(all[i],all[j]);for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vy+=.04;p.vx*=.985;p.life-=.022}particles=particles.filter(p=>p.life>0);if(shot&&!moving()){const scored=players[turn].pocketed>0;coins=coins.filter(o=>!o.pocketed);if(coins.filter(o=>o.type==='coin').length===0)finishGame();else finishTurn(scored)}}
-function finishGame(){if(gameOver)return;gameOver=true;clearInterval(timerId);coins=coins.filter(o=>!o.pocketed);const winner=players.reduce((a,b)=>b.score>a.score?b:a,players[0]);stats.games++;if(mode==='ai'&&winner===players[0])stats.wins++;localStorage.setItem('carromClashStats',JSON.stringify(stats));sfx.win();burst(CX,CY,70);confetti();showWinner(winner)}
-function showWinner(w){$('#modalBody').innerHTML=`<div class="winner-card"><div class="winner-kicker">MATCH COMPLETE · SEASON 01</div><h2>🏆 ${w.name.toUpperCase()} WINS!</h2><p class="winner-score">${w.score}<span> POINTS</span></p><div class="winner-stats"><span>${w.shots}<b>SHOTS</b></span><span>${w.fouls}<b>FOULS</b></span><span>${w.queen}<b>QUEEN</b></span></div><button class="winner-btn" id="rematchBtn">⚡ PLAY AGAIN</button></div>`;$('#modal').classList.remove('hidden');$('#rematchBtn').onclick=()=>{closeModal();reset()};pulse('VICTORY',COLORS.gold2)}
-function draw(){ctx.clearRect(0,0,W,W);const bg=ctx.createRadialGradient(CX,CY,40,CX,CY,560);bg.addColorStop(0,'#152b40');bg.addColorStop(1,'#06111d');ctx.fillStyle=bg;ctx.fillRect(0,0,W,W);drawBoard();for(const o of coins)if(!o.pocketed)drawCoin(o);if(striker&&!striker.pocketed)drawStriker();for(const p of particles){ctx.save();ctx.globalAlpha=p.life;ctx.fillStyle=p.life>.5?COLORS.gold:COLORS.teal;ctx.beginPath();ctx.arc(p.x,p.y,p.size,0,Math.PI*2);ctx.fill();ctx.restore()}}
-function drawBoard(){ctx.save();ctx.translate(CX,CY);ctx.shadowColor='#000b';ctx.shadowBlur=38;const outer=ctx.createRadialGradient(-100,-110,60,0,0,430);outer.addColorStop(0,'#f7dca5');outer.addColorStop(.65,'#c68d4a');outer.addColorStop(1,'#744421');ctx.fillStyle=outer;ctx.beginPath();ctx.arc(0,0,415,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;const inner=ctx.createRadialGradient(-70,-80,40,0,0,380);inner.addColorStop(0,'#f8dda8');inner.addColorStop(1,'#e5bc72');ctx.fillStyle=inner;ctx.beginPath();ctx.arc(0,0,R+13,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#704626';ctx.lineWidth=8;ctx.beginPath();ctx.arc(0,0,R,0,Math.PI*2);ctx.stroke();ctx.strokeStyle='#a56d37';ctx.lineWidth=3;ctx.beginPath();ctx.arc(0,0,92,0,Math.PI*2);ctx.stroke();ctx.beginPath();ctx.arc(0,0,43,0,Math.PI*2);ctx.stroke();for(const y of [-190,190]){ctx.beginPath();ctx.moveTo(-245,y);ctx.lineTo(245,y);ctx.stroke()}for(const x of [-190,190]){ctx.beginPath();ctx.moveTo(x,-245);ctx.lineTo(x,245);ctx.stroke()}ctx.restore();for(const [x,y] of POCKETS){const g=ctx.createRadialGradient(x-6,y-6,3,x,y,PR);g.addColorStop(0,'#000');g.addColorStop(.72,'#0b1016');g.addColorStop(1,'#5a331d');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,PR,0,Math.PI*2);ctx.fill()}}
-function drawCoin(o){ctx.save();ctx.shadowColor='#0008';ctx.shadowBlur=8;const g=ctx.createRadialGradient(o.x-4,o.y-5,2,o.x,o.y,o.r);if(o.type==='queen'){g.addColorStop(0,'#ffb1b7');g.addColorStop(.4,COLORS.red);g.addColorStop(1,'#a72839')}else if(o.color===COLORS.black){g.addColorStop(0,'#4a535f');g.addColorStop(1,'#141a21')}else{g.addColorStop(0,'#fff6dc');g.addColorStop(1,'#d6c39b')}ctx.fillStyle=g;ctx.beginPath();ctx.arc(o.x,o.y,o.r,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;ctx.strokeStyle=o.type==='queen'?COLORS.gold2:'#88795e';ctx.lineWidth=2;ctx.stroke();if(o.type==='queen'){ctx.strokeStyle='#ffe7a0';ctx.lineWidth=2;ctx.beginPath();ctx.arc(o.x,o.y,o.r*.47,0,Math.PI*2);ctx.stroke()}ctx.restore()}
-function drawStriker(){const s=striker||{x:strikerPos()[0],y:strikerPos()[1],r:18};ctx.save();const g=ctx.createRadialGradient(s.x-5,s.y-6,2,s.x,s.y,21);g.addColorStop(0,'#fff6c9');g.addColorStop(.45,COLORS.gold);g.addColorStop(1,'#8e5b27');ctx.fillStyle=g;ctx.shadowColor=COLORS.gold;ctx.shadowBlur=drag?24:12;ctx.beginPath();ctx.arc(s.x,s.y,18,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;ctx.strokeStyle='#5d3c22';ctx.lineWidth=2;ctx.stroke();ctx.strokeStyle=COLORS.teal;ctx.lineWidth=3;ctx.globalAlpha=.35;ctx.beginPath();ctx.arc(s.x,s.y,26+Math.sin(Date.now()/180)*3,0,Math.PI*2);ctx.stroke();ctx.globalAlpha=1;if(drag){const dx=drag.x-s.x,dy=drag.y-s.y,len=Math.min(520,Math.hypot(dx,dy));const a=Math.atan2(dy,dx);ctx.strokeStyle='rgba(49,225,203,.95)';ctx.lineWidth=3;ctx.setLineDash([10,9]);ctx.beginPath();ctx.moveTo(s.x,s.y);ctx.lineTo(s.x+Math.cos(a)*len,s.y+Math.sin(a)*len);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='rgba(246,200,79,.22)';ctx.beginPath();ctx.moveTo(s.x,s.y);ctx.arc(s.x,s.y,Math.min(170,len),a-.09,a+.09);ctx.closePath();ctx.fill();}ctx.restore()}
-function setPower(v){const n=Math.max(0,Math.min(100,v));$('#powerFill').style.width=n+'%';$('#powerValue').textContent=Math.round(n)+'%'}
-canvas.addEventListener('pointerdown',e=>{unlockAudio();if(!canPlay())return;const p=pointer(e),[sx,sy]=strikerPos();if(Math.hypot(p.x-sx,p.y-sy)<55){striker={x:sx,y:sy,r:18,vx:0,vy:0,color:COLORS.gold,pocketed:false};drag=p;canvas.setPointerCapture?.(e.pointerId);sfx.click();draw()}});
-canvas.addEventListener('pointermove',e=>{if(!drag||!canPlay())return;drag=pointer(e);const[sx,sy]=strikerPos();const len=Math.hypot(drag.x-sx,drag.y-sy);setPower(Math.min(100,len/2.4));draw()});
-canvas.addEventListener('pointerup',e=>{if(!drag)return;const p=pointer(e);shoot(p);drag=null;draw()});canvas.addEventListener('pointercancel',()=>{drag=null;setPower(0);draw()});
-$('#soundBtn').onclick=()=>{sound=!sound;$('#soundBtn').textContent=sound?'🔊':'🔇';if(sound){unlockAudio();sfx.click()}else if(audio)audio.suspend()};
-$('#helpBtn').onclick=()=>{unlockAudio();sfx.click();$('#modalBody').innerHTML='<h2>How to play</h2><p>Touch the glowing striker, drag <b>toward the target</b>, then release. The dotted guide is the exact shot direction.</p><ul><li>Longer drag = more power.</li><li>Pocket a coin to score +1.</li><li>Queen = +3.</li><li>Pocketing the striker is a foul.</li><li>20 seconds per turn.</li><li>In VS Computer, the AI aims automatically.</li></ul><p><b>Center tip:</b> place the striker on the bottom line and drag straight toward the red queen. This version uses intuitive forward aiming, so the shot travels in the same direction as your drag.</p>';$('#modal').classList.remove('hidden')};
-$('#closeModal').onclick=closeModal;$('#modal').addEventListener('pointerdown',e=>{if(e.target===$('#modal'))closeModal()});function closeModal(){$('#modal').classList.add('hidden')}
-$('#newBtn').onclick=reset;$('#homeBtn').onclick=()=>{clearInterval(timerId);stopLoop();closeModal();$('#game').classList.remove('active');$('#home').classList.add('active');sfx.click()};document.querySelectorAll('.mode-card').forEach(b=>b.addEventListener('click',()=>start(b.dataset.mode)));window.addEventListener('resize',draw);window.addEventListener('orientationchange',()=>setTimeout(draw,120));
-initPlayers();placeStriker();draw();
+    object.vx = 0;
+
+    object.vy = 0;
+  }
+
+  /*
+    Pocket detection.
+  */
+
+  if (
+    pocketAt(
+      object.x,
+      object.y
+    )
+  ) {
+
+    if (isStriker) {
+
+      object.pocketed = true;
+
+      object.vx = 0;
+
+      object.vy = 0;
+
+      players[turn].fouls++;
+
+      shotFoul = true;
+
+      sfx.foul();
+
+      pulse(
+        'FOUL',
+        C.red
+      );
+
+      feed(
+        players[turn].name +
+        ' pocketed the striker'
+      );
+
+    } else {
+
+      pocketCoin(object);
+    }
+
+    return;
+  }
+
+  /*
+    Circular board collision.
+  */
+
+  const dx =
+    object.x -
+    CX;
+
+  const dy =
+    object.y -
+    CY;
+
+  const distance =
+    Math.hypot(
+      dx,
+      dy
+    );
+
+  const limit =
+    BOARD_R -
+    object.r;
+
+  if (
+    distance >
+    limit
+  ) {
+
+    const nx =
+      dx /
+      (distance || 1);
+
+    const ny =
+      dy /
+      (distance || 1);
+
+    object.x =
+      CX +
+      nx *
+      limit;
+
+    object.y =
+      CY +
+      ny *
+      limit;
+
+    const velocityAlongNormal =
+      object.vx * nx +
+      object.vy * ny;
+
+    object.vx -=
+      2 *
+      velocityAlongNormal *
+      nx;
+
+    object.vy -=
+      2 *
+      velocityAlongNormal *
+      ny;
+
+    object.vx *= 0.92;
+
+    object.vy *= 0.92;
+
+    sfx.rail();
+  }
+}
+
+/* ---------------------------------------------------------
+   COIN COLLISION
+--------------------------------------------------------- */
+
+function collide(
+  a,
+  b
+) {
+
+  if (
+    !a ||
+    !b ||
+    a.pocketed ||
+    b.pocketed
+  ) {
+    return false;
+  }
+
+  const dx =
+    b.x -
+    a.x;
+
+  const dy =
+    b.y -
+    a.y;
+
+  const distance =
+    Math.hypot(
+      dx,
+      dy
+    );
+
+  const minimum =
+    a.r +
+    b.r;
+
+  if (
+    distance <= 0.001 ||
+    distance >= minimum
+  ) {
+    return false;
+  }
+
+  const nx =
+    dx /
+    distance;
+
+  const ny =
+    dy /
+    distance;
+
+  const overlap =
+    minimum -
+    distance;
+
+  /*
+    Separate overlapping coins.
+  */
+
+  a.x -=
+    nx *
+    overlap *
+    0.51;
+
+  a.y -=
+    ny *
+    overlap *
+    0.51;
+
+  b.x +=
+    nx *
+    overlap *
+    0.51;
+
+  b.y +=
+    ny *
+    overlap *
+    0.51;
+
+  /*
+    Relative velocity.
+  */
+
+  const relative =
+    (a.vx - b.vx) * nx +
+    (a.vy - b.vy) * ny;
+
+  if (
+    relative <= 0
+  ) {
+    return false;
+  }
+
+  const impulse =
+    relative *
+    0.985;
+
+  a.vx -=
+    impulse *
+    nx;
+
+  a.vy -=
+    impulse *
+    ny;
+
+  b.vx +=
+    impulse *
+    nx;
+
+  b.vy +=
+    impulse *
+    ny;
+
+  sfx.hit(
+    Math.min(
+      10,
+      relative
+    )
+  );
+
+  if (
+    Math.random() < 0.4
+  ) {
+
+    burst(
+      (a.x + b.x) / 2,
+      (a.y + b.y) / 2,
+      2
+    );
+  }
+
+  return true;
+}
+
+/* ---------------------------------------------------------
+   MAIN PHYSICS
+--------------------------------------------------------- */
+
+function physics(dt) {
+
+  if (
+    striker &&
+    !striker.pocketed
+  ) {
+
+    updateObject(
+      striker,
+      dt,
+      true
+    );
+  }
+
+  for (
+    const coin of coins
+  ) {
+
+    if (!coin.pocketed) {
+
+      updateObject(
+        coin,
+        dt,
+        false
+      );
+    }
+  }
+
+  const objects = [
+    ...(
+      striker &&
+      !striker.pocketed
+        ? [striker]
+        : []
+    ),
+
+    ...coins.filter(
+      (coin) =>
+        !coin.pocketed
+    )
+  ];
+
+  for (
+    let i = 0;
+    i < objects.length;
+    i++
+  ) {
+
+    for (
+      let j = i + 1;
+      j < objects.length;
+      j++
+    ) {
+
+      collide(
+        objects[i],
+        objects[j]
+      );
+    }
+  }
+
+  for (
+    const particle of particles
+  ) {
+
+    particle.x +=
+      particle.vx *
+      dt;
+
+    particle.y +=
+      particle.vy *
+      dt;
+
+    particle.vy +=
+      0.05 *
+      dt;
+
+    particle.vx *=
+      0.985;
+
+    particle.life -=
+      0.018 *
+      dt;
+  }
+
+  particles =
+    particles.filter(
+      (particle) =>
+        particle.life > 0
+    );
+
+  /*
+    Shot finished.
+  */
+
+  if (
+    shotActive &&
+    !moving()
+  ) {
+
+    coins =
+      coins.filter(
+        (coin) =>
+          !coin.pocketed
+      );
+
+    const remainingCoins =
+      coins.filter(
+        (coin) =>
+          coin.type === 'coin'
+      ).length;
+
+    /*
+      Queen can be left until the end.
+    */
+
+    if (
+      remainingCoins === 0
+    ) {
+
+      finishGame();
+
+    } else {
+
+      endTurn(
+        shotPocketed > 0 ||
+        shotQueen
+      );
+    }
+  }
+}
+
+/* ---------------------------------------------------------
+   END TURN
+--------------------------------------------------------- */
+
+function endTurn(scored) {
+
+  if (gameOver) {
+    return;
+  }
+
+  shotActive = false;
+
+  dragging = false;
+
+  dragPoint = null;
+
+  if (
+    striker &&
+    striker.pocketed
+  ) {
+
+    striker = null;
+  }
+
+  /*
+    Foul = next player.
+    Successful pocket = keep turn.
+  */
+
+  if (
+    !scored ||
+    shotFoul
+  ) {
+
+    turn =
+      (
+        turn + 1
+      ) %
+      players.length;
+  }
+
+  placeStriker();
+
+  updateHud();
+
+  setPower(0);
+
+  setTimer();
+
+  draw();
+
+  /*
+    Computer
