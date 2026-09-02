@@ -1,24 +1,31 @@
 'use strict';
 
 /* =========================================================
-   CARROM CLASH — GAME ENGINE
-   Mobile-first • Precise aiming • 1P/2P/3P/4P
-   Web Audio • Physics • Pockets • Queen • Winner FX
+   CARROM CLASH — MOBILE FIRST GAME ENGINE
+   Full replacement game.js
    ========================================================= */
 
-const $ = s => document.querySelector(s);
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+
+/* ---------------------------------------------------------
+   DOM
+--------------------------------------------------------- */
 
 const canvas = $('#board');
 const ctx = canvas ? canvas.getContext('2d') : null;
+
+/* ---------------------------------------------------------
+   BOARD
+--------------------------------------------------------- */
 
 const W = 900;
 const CX = 450;
 const CY = 450;
 
-/* Board geometry */
 const BOARD_R = 365;
-const RAIL_MIN = 52;
-const RAIL_MAX = 848;
+const PLAY_MIN = 88;
+const PLAY_MAX = 812;
 
 const POCKETS = [
   [54, 54],
@@ -27,25 +34,29 @@ const POCKETS = [
   [846, 846]
 ];
 
-const POCKET_R = 35;
+const POCKET_R = 34;
 
-/* Theme */
+/* ---------------------------------------------------------
+   COLORS
+--------------------------------------------------------- */
+
 const C = {
   gold: '#f7c84b',
   gold2: '#ffe38a',
   teal: '#39e2d0',
   red: '#ff5365',
+  purple: '#b98cff',
   navy: '#071526',
-  navy2: '#102a42',
+  navy2: '#0c1d2f',
   cream: '#f6dfae',
-  black: '#1c2732',
   wood: '#b87b35',
-  white: '#ffffff'
+  black: '#1c2732',
+  white: '#fff8e7'
 };
 
-/* =========================================================
-   GAME STATE
-   ========================================================= */
+/* ---------------------------------------------------------
+   STATE
+--------------------------------------------------------- */
 
 let mode = 'ai';
 let players = [];
@@ -58,10 +69,6 @@ let dragging = false;
 let dragPoint = null;
 
 let shotActive = false;
-let shotPocketed = 0;
-let shotQueen = false;
-let shotFoul = false;
-
 let timer = 20;
 let timerId = null;
 
@@ -74,21 +81,32 @@ let lastTime = 0;
 let soundOn = true;
 let audioCtx = null;
 
+let shotPocketed = 0;
+let shotQueen = false;
+let shotFoul = false;
+
 let stats = loadStats();
 
-/* =========================================================
-   STATS
-   ========================================================= */
+/* ---------------------------------------------------------
+   STORAGE
+--------------------------------------------------------- */
 
 function loadStats() {
   try {
-    const data = JSON.parse(
-      localStorage.getItem('carromClashStats')
-    );
+    const raw = localStorage.getItem('carromClashStats');
 
-    return data || {
-      games: 0,
-      wins: 0
+    if (!raw) {
+      return {
+        games: 0,
+        wins: 0
+      };
+    }
+
+    const parsed = JSON.parse(raw);
+
+    return {
+      games: Number(parsed.games) || 0,
+      wins: Number(parsed.wins) || 0
     };
   } catch {
     return {
@@ -107,22 +125,21 @@ function saveStats() {
   } catch {}
 }
 
-/* =========================================================
-   AUDIO ENGINE
-   No API / No external files
-   ========================================================= */
+/* ---------------------------------------------------------
+   AUDIO
+--------------------------------------------------------- */
 
 function unlockAudio() {
   if (!soundOn) return;
 
   try {
     if (!audioCtx) {
-      const AC =
+      const AudioContext =
         window.AudioContext ||
         window.webkitAudioContext;
 
-      if (AC) {
-        audioCtx = new AC();
+      if (AudioContext) {
+        audioCtx = new AudioContext();
       }
     }
 
@@ -130,16 +147,16 @@ function unlockAudio() {
       audioCtx &&
       audioCtx.state === 'suspended'
     ) {
-      audioCtx.resume();
+      audioCtx.resume().catch(() => {});
     }
   } catch {}
 }
 
 function tone(
-  frequency = 440,
+  freq = 440,
   duration = 0.07,
   type = 'sine',
-  volume = 0.035
+  gainValue = 0.035
 ) {
   if (!soundOn) return;
 
@@ -160,7 +177,7 @@ function tone(
     oscillator.type = type;
 
     oscillator.frequency.setValueAtTime(
-      frequency,
+      freq,
       now
     );
 
@@ -170,7 +187,7 @@ function tone(
     );
 
     gain.gain.exponentialRampToValueAtTime(
-      volume,
+      Math.max(0.0002, gainValue),
       now + 0.008
     );
 
@@ -200,19 +217,10 @@ const sfx = {
     );
   },
 
-  striker() {
-    tone(
-      180,
-      0.07,
-      'square',
-      0.025
-    );
-  },
-
   hit(power = 1) {
     tone(
-      135 + Math.min(260, power * 24),
-      0.055,
+      145 + Math.min(240, power * 25),
+      0.06,
       'square',
       0.018
     );
@@ -220,16 +228,16 @@ const sfx = {
 
   rail() {
     tone(
-      95,
-      0.05,
-      'triangle',
-      0.018
+      90,
+      0.045,
+      'sine',
+      0.012
     );
   },
 
   pocket() {
     tone(
-      650,
+      680,
       0.08,
       'sine',
       0.04
@@ -237,7 +245,7 @@ const sfx = {
 
     setTimeout(() => {
       tone(
-        930,
+        980,
         0.12,
         'sine',
         0.03
@@ -247,32 +255,30 @@ const sfx = {
 
   queen() {
     [520, 660, 820, 1040].forEach(
-      (n, i) => {
-        setTimeout(
-          () =>
-            tone(
-              n,
-              0.13,
-              'triangle',
-              0.045
-            ),
-          i * 75
-        );
+      (frequency, index) => {
+        setTimeout(() => {
+          tone(
+            frequency,
+            0.12,
+            'triangle',
+            0.04
+          );
+        }, index * 75);
       }
     );
   },
 
   foul() {
     tone(
-      145,
-      0.13,
+      150,
+      0.14,
       'sawtooth',
       0.04
     );
 
     setTimeout(() => {
       tone(
-        90,
+        95,
         0.16,
         'sawtooth',
         0.03
@@ -282,25 +288,23 @@ const sfx = {
 
   win() {
     [523, 659, 784, 1047, 1319].forEach(
-      (n, i) => {
-        setTimeout(
-          () =>
-            tone(
-              n,
-              0.18,
-              'triangle',
-              0.05
-            ),
-          i * 90
-        );
+      (frequency, index) => {
+        setTimeout(() => {
+          tone(
+            frequency,
+            0.18,
+            'triangle',
+            0.05
+          );
+        }, index * 90);
       }
     );
   }
 };
 
-/* =========================================================
-   PLAYERS
-   ========================================================= */
+/* ---------------------------------------------------------
+   PLAYER
+--------------------------------------------------------- */
 
 function makePlayer(name, color) {
   return {
@@ -383,7 +387,7 @@ function initPlayers() {
 
       makePlayer(
         'Player 4',
-        '#b98cff'
+        C.purple
       )
     ];
   }
@@ -406,33 +410,27 @@ function modeLabel() {
   return '4 PLAYER CLASH';
 }
 
-/* =========================================================
-   STRIKER POSITION
-   ========================================================= */
+/* ---------------------------------------------------------
+   BOARD GEOMETRY
+--------------------------------------------------------- */
+
+function edgeLine() {
+  return BOARD_R - 92;
+}
 
 function sideForTurn() {
+  if (!players.length) return 0;
+
   return turn % players.length;
 }
 
-function strikerPosition() {
+function strikerPos() {
 
-  const count =
-    players.length;
+  const count = players.length;
+  const side = sideForTurn();
+  const edge = edgeLine();
 
-  const side =
-    sideForTurn();
-
-  /*
-    IMPORTANT:
-    Striker is placed near the correct
-    baseline for every multiplayer mode.
-  */
-
-  const edge =
-    BOARD_R - 92;
-
-  /* 1P / 2P */
-  if (count === 2) {
+  if (count <= 2) {
 
     if (side === 0) {
       return [
@@ -447,7 +445,6 @@ function strikerPosition() {
     ];
   }
 
-  /* 3 players */
   if (count === 3) {
 
     if (side === 0) {
@@ -469,8 +466,6 @@ function strikerPosition() {
       CY
     ];
   }
-
-  /* 4 players */
 
   if (side === 0) {
     return [
@@ -504,7 +499,7 @@ function placeStriker() {
   const [
     x,
     y
-  ] = strikerPosition();
+  ] = strikerPos();
 
   striker = {
     x,
@@ -516,9 +511,29 @@ function placeStriker() {
   };
 }
 
-/* =========================================================
-   SETUP
-   ========================================================= */
+/* ---------------------------------------------------------
+   GAME START / RESET
+--------------------------------------------------------- */
+
+function canPlay() {
+
+  if (gameOver) {
+    return false;
+  }
+
+  if (shotActive) {
+    return false;
+  }
+
+  if (
+    mode === 'ai' &&
+    turn === 1
+  ) {
+    return false;
+  }
+
+  return true;
+}
 
 function setup() {
 
@@ -528,43 +543,23 @@ function setup() {
 
   particles = [];
 
-  coins = [];
-
   shotActive = false;
+
   dragging = false;
+
   dragPoint = null;
 
   gameOver = false;
 
   shotPocketed = 0;
+
   shotQueen = false;
+
   shotFoul = false;
 
-  createCoins();
+  coins = [];
 
-  turn = 0;
-
-  placeStriker();
-
-  updateHud();
-
-  setPower(0);
-
-  feed(
-    'Break ready · drag striker toward the target'
-  );
-
-  setTimer();
-
-  draw();
-
-  pulse(
-    'READY',
-    C.teal
-  );
-}
-
-function createCoins() {
+  /* QUEEN */
 
   coins.push({
     x: CX,
@@ -577,7 +572,7 @@ function createCoins() {
     pocketed: false
   });
 
-  /* Inner ring */
+  /* INNER RING */
 
   const ring1 = 6;
 
@@ -615,7 +610,7 @@ function createCoins() {
     });
   }
 
-  /* Outer ring */
+  /* OUTER RING */
 
   const ring2 = 12;
 
@@ -653,20 +648,83 @@ function createCoins() {
       pocketed: false
     });
   }
+
+  turn = 0;
+
+  placeStriker();
+
+  updateHud();
+
+  setPower(0);
+
+  feed(
+    'Break ready · drag striker toward a target'
+  );
+
+  setTimer();
+
+  draw();
+
+  pulse(
+    'READY',
+    C.teal
+  );
+
+  /* Start rendering only when needed */
+  draw();
 }
 
-/* =========================================================
-   START / RESET
-   ========================================================= */
-
 function start(selectedMode) {
-
-  mode =
-    selectedMode;
 
   unlockAudio();
 
   sfx.click();
+
+  const normalized =
+    String(selectedMode || '')
+      .toLowerCase()
+      .trim();
+
+  if (
+    normalized === 'ai' ||
+    normalized === 'computer' ||
+    normalized === 'vs-computer' ||
+    normalized === 'vscomputer'
+  ) {
+
+    mode = 'ai';
+
+  } else if (
+    normalized === '2p' ||
+    normalized === '2player' ||
+    normalized === '2-player' ||
+    normalized === 'two-player'
+  ) {
+
+    mode = '2p';
+
+  } else if (
+    normalized === '3p' ||
+    normalized === '3player' ||
+    normalized === '3-player' ||
+    normalized === 'three-player'
+  ) {
+
+    mode = '3p';
+
+  } else if (
+    normalized === '4p' ||
+    normalized === '4player' ||
+    normalized === '4-player' ||
+    normalized === 'four-player'
+  ) {
+
+    mode = '4p';
+
+  } else {
+
+    mode = 'ai';
+  }
 
   initPlayers();
 
@@ -677,18 +735,28 @@ function start(selectedMode) {
     $('#game');
 
   if (home) {
-    home.classList.remove(
-      'active'
-    );
+    home.classList.remove('active');
   }
 
   if (game) {
-    game.classList.add(
-      'active'
-    );
+    game.classList.add('active');
+  }
+
+  /*
+    Force layout calculation.
+    This helps mobile browsers when switching
+    display:none -> display:block.
+  */
+
+  if (game) {
+    void game.offsetHeight;
   }
 
   setup();
+
+  requestAnimationFrame(() => {
+    draw();
+  });
 }
 
 function reset() {
@@ -697,31 +765,31 @@ function reset() {
 
   sfx.click();
 
+  initPlayers();
+
   setup();
 }
 
-/* =========================================================
-   LOOP
-   ========================================================= */
+/* ---------------------------------------------------------
+   ANIMATION LOOP
+--------------------------------------------------------- */
 
 function startLoop() {
 
-  if (raf) return;
+  if (raf) {
+    return;
+  }
 
   lastTime = 0;
 
   raf =
-    requestAnimationFrame(
-      gameLoop
-    );
+    requestAnimationFrame(loop);
 }
 
 function stopLoop() {
 
   if (raf) {
-    cancelAnimationFrame(
-      raf
-    );
+    cancelAnimationFrame(raf);
   }
 
   raf = 0;
@@ -729,20 +797,697 @@ function stopLoop() {
   lastTime = 0;
 }
 
-function gameLoop(time) {
+function loop(timestamp) {
 
   if (!raf) {
     return;
   }
 
   if (!lastTime) {
-    lastTime = time;
+    lastTime = timestamp;
   }
 
   const dt =
     Math.min(
       2.2,
-      (time - lastTime) /
+      (timestamp - lastTime) / 16.67
+    );
+
+  lastTime = timestamp;
+
+  physics(dt);
+
+  draw();
+
+  if (
+    shotActive ||
+    moving() ||
+    particles.length ||
+    dragging
+  ) {
+
+    raf =
+      requestAnimationFrame(loop);
+
+  } else {
+
+    stopLoop();
+  }
+}
+
+function moving() {
+
+  const strikerMoving =
+    striker &&
+    !striker.pocketed &&
+    Math.hypot(
+      striker.vx,
+      striker.vy
+    ) > 0.055;
+
+  const coinMoving =
+    coins.some(
+      (coin) =>
+        !coin.pocketed &&
+        Math.hypot(
+          coin.vx,
+          coin.vy
+        ) > 0.055
+    );
+
+  return (
+    strikerMoving ||
+    coinMoving
+  );
+}
+
+/* ---------------------------------------------------------
+   TIMER
+--------------------------------------------------------- */
+
+function setTimer() {
+
+  clearInterval(timerId);
+
+  timer = 20;
+
+  renderTimer();
+
+  timerId =
+    setInterval(() => {
+
+      if (
+        gameOver ||
+        shotActive
+      ) {
+        return;
+      }
+
+      timer--;
+
+      renderTimer();
+
+      if (timer <= 0) {
+
+        players[turn].fouls++;
+
+        shotFoul = true;
+
+        sfx.foul();
+
+        feed(
+          players[turn].name +
+          ' timed out'
+        );
+
+        pulse(
+          'TIME OUT',
+          C.red
+        );
+
+        endTurn(false);
+      }
+
+    }, 1000);
+}
+
+function renderTimer() {
+
+  const timerElement =
+    $('#timer');
+
+  if (timerElement) {
+    timerElement.textContent =
+      timer;
+  }
+
+  const timerBar =
+    $('#timerBar');
+
+  if (timerBar) {
+
+    timerBar.style.width =
+      `${timer * 5}%`;
+
+    timerBar.classList.toggle(
+      'danger',
+      timer <= 5
+    );
+  }
+}
+
+/* ---------------------------------------------------------
+   HUD
+--------------------------------------------------------- */
+
+function setText(
+  selector,
+  value
+) {
+
+  const element =
+    $(selector);
+
+  if (element) {
+    element.textContent =
+      value;
+  }
+}
+
+function updateHud() {
+
+  const current =
+    players[turn] || {};
+
+  setText(
+    '#turnName',
+    current.name || ''
+  );
+
+  setText(
+    '#status',
+    mode === 'ai' &&
+    turn === 1
+      ? 'Computer is thinking…'
+      : 'Aim and shoot'
+  );
+
+  const dot =
+    $('#turnDot');
+
+  if (dot) {
+
+    const color =
+      current.color ||
+      C.gold;
+
+    dot.style.background =
+      color;
+
+    dot.style.boxShadow =
+      `0 0 18px ${color}`;
+  }
+
+  setText(
+    '#p1Score',
+    players[0]?.score || 0
+  );
+
+  setText(
+    '#p2Score',
+    players[1]?.score || 0
+  );
+
+  setText(
+    '#p1Name',
+    players[0]?.name || ''
+  );
+
+  setText(
+    '#p2Name',
+    players[1]?.name || ''
+  );
+
+  setText(
+    '#p1Meta',
+    players[0]
+      ? `${players[0].score} points · ${players[0].fouls} fouls`
+      : ''
+  );
+
+  setText(
+    '#p2Meta',
+    players[1]
+      ? `${players[1].score} points · ${players[1].fouls} fouls`
+      : ''
+  );
+
+  setText(
+    '#p1Avatar',
+    'P1'
+  );
+
+  setText(
+    '#p2Avatar',
+    players[1]?.name === 'Computer'
+      ? 'AI'
+      : 'P2'
+  );
+
+  /* Optional 3P / 4P HUD support */
+
+  setText(
+    '#p3Score',
+    players[2]?.score || 0
+  );
+
+  setText(
+    '#p4Score',
+    players[3]?.score || 0
+  );
+
+  setText(
+    '#p3Name',
+    players[2]?.name || ''
+  );
+
+  setText(
+    '#p4Name',
+    players[3]?.name || ''
+  );
+}
+
+/* ---------------------------------------------------------
+   EVENT FEED
+--------------------------------------------------------- */
+
+function feed(text) {
+
+  const list =
+    $('#feedList');
+
+  if (!list) {
+    return;
+  }
+
+  const item =
+    document.createElement('div');
+
+  item.textContent =
+    '› ' + text;
+
+  list.prepend(item);
+
+  while (
+    list.children.length > 8
+  ) {
+
+    list.lastElementChild.remove();
+  }
+}
+
+/* ---------------------------------------------------------
+   FX
+--------------------------------------------------------- */
+
+function pulse(
+  text,
+  color = C.gold
+) {
+
+  const layer =
+    $('#fxLayer');
+
+  if (!layer) {
+    return;
+  }
+
+  const element =
+    document.createElement('div');
+
+  element.className =
+    'fx-text';
+
+  element.textContent =
+    text;
+
+  element.style.color =
+    color;
+
+  layer.appendChild(element);
+
+  setTimeout(() => {
+    element.remove();
+  }, 900);
+}
+
+function burst(
+  x,
+  y,
+  count = 16
+) {
+
+  for (
+    let i = 0;
+    i < count;
+    i++
+  ) {
+
+    const angle =
+      Math.random() *
+      Math.PI *
+      2;
+
+    const velocity =
+      1 +
+      Math.random() * 4;
+
+    particles.push({
+      x,
+      y,
+
+      vx:
+        Math.cos(angle) *
+        velocity,
+
+      vy:
+        Math.sin(angle) *
+        velocity,
+
+      size:
+        2 +
+        Math.random() * 4,
+
+      life: 1
+    });
+  }
+
+  startLoop();
+}
+
+function confetti() {
+
+  for (
+    let i = 0;
+    i < 120;
+    i++
+  ) {
+
+    const angle =
+      Math.random() *
+      Math.PI *
+      2;
+
+    const velocity =
+      2 +
+      Math.random() * 6;
+
+    particles.push({
+      x: CX,
+      y: CY,
+
+      vx:
+        Math.cos(angle) *
+        velocity,
+
+      vy:
+        Math.sin(angle) *
+        velocity,
+
+      size:
+        3 +
+        Math.random() * 5,
+
+      life: 1.25
+    });
+  }
+
+  startLoop();
+}
+
+/* ---------------------------------------------------------
+   POINTER COORDINATES
+--------------------------------------------------------- */
+
+function pointer(event) {
+
+  if (!canvas) {
+    return {
+      x: CX,
+      y: CY
+    };
+  }
+
+  const rect =
+    canvas.getBoundingClientRect();
+
+  if (!rect.width || !rect.height) {
+
+    return {
+      x: CX,
+      y: CY
+    };
+  }
+
+  const x =
+    (
+      event.clientX -
+      rect.left
+    ) *
+    W /
+    rect.width;
+
+  const y =
+    (
+      event.clientY -
+      rect.top
+    ) *
+    W /
+    rect.height;
+
+  return {
+    x:
+      Math.max(
+        0,
+        Math.min(W, x)
+      ),
+
+    y:
+      Math.max(
+        0,
+        Math.min(W, y)
+      )
+  };
+}
+
+/* ---------------------------------------------------------
+   POWER
+--------------------------------------------------------- */
+
+function setPower(value) {
+
+  const power =
+    Math.max(
+      0,
+      Math.min(100, value)
+    );
+
+  const fill =
+    $('#powerFill');
+
+  if (fill) {
+    fill.style.width =
+      power + '%';
+  }
+
+  const valueElement =
+    $('#powerValue');
+
+  if (valueElement) {
+    valueElement.textContent =
+      Math.round(power) + '%';
+  }
+}
+
+/* ---------------------------------------------------------
+   SHOOT
+--------------------------------------------------------- */
+
+function shoot(target) {
+
+  if (
+    !striker ||
+    striker.pocketed ||
+    !canPlay()
+  ) {
+    return;
+  }
+
+  /*
+    Center assistance:
+    if player aims near center,
+    lock the shot to the exact center.
+  */
+
+  const distanceToCenter =
+    Math.hypot(
+      target.x - CX,
+      target.y - CY
+    );
+
+  if (
+    distanceToCenter < 62
+  ) {
+
+    target = {
+      x: CX,
+      y: CY
+    };
+  }
+
+  const dx =
+    target.x -
+    striker.x;
+
+  const dy =
+    target.y -
+    striker.y;
+
+  const length =
+    Math.hypot(dx, dy);
+
+  if (length < 18) {
+
+    setPower(0);
+
+    return;
+  }
+
+  /*
+    Mobile-friendly power.
+  */
+
+  const power =
+    Math.max(
+      5.2,
+      Math.min(
+        18,
+        length / 12.5
+      )
+    );
+
+  striker.vx =
+    dx / length *
+    power;
+
+  striker.vy =
+    dy / length *
+    power;
+
+  players[turn].shots++;
+
+  shotActive = true;
+
+  shotPocketed = 0;
+
+  shotQueen = false;
+
+  shotFoul = false;
+
+  dragging = false;
+
+  dragPoint = null;
+
+  setPower(0);
+
+  setText(
+    '#status',
+    players[turn].name +
+    ' shot in progress'
+  );
+
+  feed(
+    players[turn].name +
+    ' fired · ' +
+    Math.round(
+      Math.min(
+        100,
+        length / 4.5
+      )
+    ) +
+    '% power'
+  );
+
+  sfx.hit(power);
+
+  startLoop();
+}
+
+/* ---------------------------------------------------------
+   POCKET
+--------------------------------------------------------- */
+
+function pocketAt(
+  x,
+  y
+) {
+
+  return POCKETS.some(
+    ([px, py]) =>
+      Math.hypot(
+        x - px,
+        y - py
+      ) <
+      POCKET_R
+  );
+}
+
+function pocketCoin(coin) {
+
+  if (
+    !coin ||
+    coin.pocketed
+  ) {
+    return;
+  }
+
+  coin.pocketed = true;
+
+  coin.vx = 0;
+
+  coin.vy = 0;
+
+  if (
+    coin.type === 'queen'
+  ) {
+
+    players[turn].score += 3;
+
+    players[turn].queen++;
+
+    shotQueen = true;
+
+    sfx.queen();
+
+    burst(
+      coin.x,
+      coin.y,
+      34
+    );
+
+    pulse(
+      'QUEEN +3',
+      C.red
+    );
+
+    feed(
+      players[turn].name +
+      ' pocketed the Queen +3'
+    );
+
+  } else {
+
+    players[turn].score++;
+
+    players[turn].pocketed++;
+
+    shotPocketed++;
+
+    sfx.pocket();
+
+    burst(
+      coin.x,
+      coin.y,
+      18
+    );
+
+    pulse(
+      '+1',
+      C.gold
+    );
+
+    feed(
+    (time - lastTime) /
         16.67
     );
 
