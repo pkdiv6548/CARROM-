@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#06111f"><meta name="description" content="Carrom Clash — premium mobile-first carrom game with precise aiming, physics, AI and local multiplayer.">
+<title>Carrom Clash — Precision Arena</title><link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="bg-orb orb-a"></div><div class="bg-orb orb-b"></div><div class="bg-grid"></div>
+<div id="app">
+<header class="topbar">
+  <div class="brand-wrap"><div class="brand">CARROM <b>CLASH</b></div><div class="tagline">PHYSICS · POCKETS · PRECISION</div></div>
+  <div class="top-actions"><button id="soundBtn" class="glass-btn" aria-label="Toggle sound">🔊</button><button id="helpBtn" class="glass-btn" aria-label="Help">?</button></div>
+</header>
+<main>
+<section id="home" class="screen active">
+  <div class="hero"><div class="eyebrow"><span></span> SEASON 01 · TABLE ELITE</div><h1>Master the <strong>center.</strong><br>Own the pockets.</h1><p>Precision aiming, reactive physics, queen play, local multiplayer and a celebration-worthy finish.</p></div>
+  <div class="mode-grid">
+    <button class="mode-card featured" data-mode="ai"><div class="mode-icon">⚡</div><div><strong>VS COMPUTER</strong><small>Smart AI · Precision duel</small></div><span class="arrow">→</span></button>
+    <button class="mode-card" data-mode="2p"><div class="mode-icon">◉◉</div><div><strong>2 PLAYER DUEL</strong><small>Pass & Play · Same device</small></div><span class="arrow">→</span></button>
+    <button class="mode-card" data-mode="4p"><div class="mode-icon">✦✦</div><div><strong>4 PLAYER CLASH</strong><small>Pass & Play · Four sides</small></div><span class="arrow">→</span></button>
+  </div>
+  <div class="feature-strip"><span>🎯 Precise center aiming</span><span>💥 Reactive physics</span><span>👑 Queen rules</span><span>🏆 Winner effects</span></div>
+</section>
+<section id="game" class="screen">
+  <div class="scorebar glass-panel">
+    <div class="turn-player"><div id="turnDot" class="turn-dot"></div><div><b id="turnName">Player 1</b><small id="status">Aim and shoot</small></div></div>
+    <div class="scorebox"><span id="p1Score">0</span><i>:</i><span id="p2Score">0</span></div>
+    <div class="score-actions"><button id="newBtn" class="glass-btn">↻</button><button id="homeBtn" class="glass-btn">⌂</button></div>
+  </div>
+  <div class="arena">
+    <aside class="side-panel left-panel">
+      <div class="panel-title">HOW TO HIT <b>CENTER</b></div>
+      <div class="step"><span>01</span><div><b>Touch striker</b><small>Start from the glowing striker.</small></div></div>
+      <div class="step"><span>02</span><div><b>Drag toward target</b><small>The dotted guide shows the exact path.</small></div></div>
+      <div class="step"><span>03</span><div><b>Build power</b><small>Longer drag = stronger shot.</small></div></div>
+      <div class="perfect"><div>✓</div><b>PERFECT CENTER</b><small>Keep the guide aligned with the red queen for a clean break.</small></div>
+      <div class="mini-tip">TIP · Short drag for accuracy. Long drag for break shots.</div>
+    </aside>
+    <div class="board-stage">
+      <div class="board-frame"><canvas id="board" width="900" height="900" aria-label="Carrom board game"></canvas><div class="board-shine"></div></div>
+      <div class="aim-copy"><span class="aim-dot"></span><span id="aimText">DRAG FROM STRIKER TOWARD THE CENTER · RELEASE TO SHOOT</span></div>
+      <div class="power-panel glass-panel"><div class="power-head"><span>POWER</span><b id="powerValue">0%</b></div><div class="power-track"><i id="powerFill"></i><em></em></div></div>
+    </div>
+    <aside class="side-panel right-panel">
+      <div class="player-chip"><span class="chip-avatar" id="p1Avatar">P1</span><div><b id="p1Name">Player 1</b><small id="p1Meta">0 points · 0 fouls</small></div></div>
+      <div class="turn-card"><div class="turn-label">TURN TIMER</div><div class="timer-row"><b id="timer">20</b><span>SEC</span></div><div class="timer-track"><i id="timerBar"></i></div></div>
+      <div class="player-chip"><span class="chip-avatar dark" id="p2Avatar">AI</span><div><b id="p2Name">Computer</b><small id="p2Meta">0 points · 0 fouls</small></div></div>
+      <div class="feed"><div class="panel-title">MATCH FEED</div><div id="feedList"></div></div>
+    </aside>
+  </div>
+</section>
+</main>
+<div id="modal" class="modal hidden"><div class="modal-card"><button id="closeModal" class="modal-close">×</button><div id="modalBody"></div></div></div>
+<div id="toast" class="toast"></div><div id="fxLayer"></div>
+</div>
+<script src="js/game.js"></script>
+</body></html>
